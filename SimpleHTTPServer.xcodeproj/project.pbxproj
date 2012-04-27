@@ -7,6 +7,19 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		3813A8D0154871E5000CFF34 /* AQSocket.m in Sources */ = {isa = PBXBuildFile; fileRef = 3813A8CA154871E5000CFF34 /* AQSocket.m */; };
+		3813A8D1154871E5000CFF34 /* AQSocketIOChannel.m in Sources */ = {isa = PBXBuildFile; fileRef = 3813A8CC154871E5000CFF34 /* AQSocketIOChannel.m */; };
+		3813A8D2154871E5000CFF34 /* AQSocketReader.m in Sources */ = {isa = PBXBuildFile; fileRef = 3813A8CF154871E5000CFF34 /* AQSocketReader.m */; };
+		3813A919154891EA000CFF34 /* AQHTTPServer.m in Sources */ = {isa = PBXBuildFile; fileRef = 3813A918154891EA000CFF34 /* AQHTTPServer.m */; };
+		3813A920154893D4000CFF34 /* AQHTTPConnection.m in Sources */ = {isa = PBXBuildFile; fileRef = 3813A91F154893D4000CFF34 /* AQHTTPConnection.m */; };
+		3813A92815489A60000CFF34 /* AQHTTPRequestOperation.m in Sources */ = {isa = PBXBuildFile; fileRef = 3813A92715489A60000CFF34 /* AQHTTPRequestOperation.m */; };
+		3813A92F1548ADC6000CFF34 /* CoreServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3813A92E1548ADC6000CFF34 /* CoreServices.framework */; };
+		3813A9321548ADD8000CFF34 /* CFNetwork.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3813A9311548ADD8000CFF34 /* CFNetwork.framework */; };
+		3813A9351549C63A000CFF34 /* AQHTTPRangedRequestOperation.m in Sources */ = {isa = PBXBuildFile; fileRef = 3813A9341549C639000CFF34 /* AQHTTPRangedRequestOperation.m */; };
+		3813A93C1549D095000CFF34 /* NSDateFormatter+AQHTTPDateFormatter.m in Sources */ = {isa = PBXBuildFile; fileRef = 3813A93B1549D095000CFF34 /* NSDateFormatter+AQHTTPDateFormatter.m */; };
+		3813A9441549DBF8000CFF34 /* DDData.m in Sources */ = {isa = PBXBuildFile; fileRef = 3813A93F1549DBF8000CFF34 /* DDData.m */; };
+		3813A9451549DBF8000CFF34 /* DDNumber.m in Sources */ = {isa = PBXBuildFile; fileRef = 3813A9411549DBF8000CFF34 /* DDNumber.m */; };
+		3813A9461549DBF8000CFF34 /* DDRange.m in Sources */ = {isa = PBXBuildFile; fileRef = 3813A9431549DBF8000CFF34 /* DDRange.m */; };
 		38634F2515472ADD007DA652 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 38634F2415472ADD007DA652 /* Foundation.framework */; };
 		38634F2815472ADD007DA652 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 38634F2715472ADD007DA652 /* main.m */; };
 		38634F2C15472ADD007DA652 /* SimpleHTTPServer.1 in CopyFiles */ = {isa = PBXBuildFile; fileRef = 38634F2B15472ADD007DA652 /* SimpleHTTPServer.1 */; };
@@ -26,10 +39,35 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		3813A8C9154871E5000CFF34 /* AQSocket.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AQSocket.h; sourceTree = "<group>"; };
+		3813A8CA154871E5000CFF34 /* AQSocket.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = AQSocket.m; sourceTree = "<group>"; };
+		3813A8CB154871E5000CFF34 /* AQSocketIOChannel.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AQSocketIOChannel.h; sourceTree = "<group>"; };
+		3813A8CC154871E5000CFF34 /* AQSocketIOChannel.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = AQSocketIOChannel.m; sourceTree = "<group>"; };
+		3813A8CD154871E5000CFF34 /* AQSocketReader+PrivateInternal.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "AQSocketReader+PrivateInternal.h"; sourceTree = "<group>"; };
+		3813A8CE154871E5000CFF34 /* AQSocketReader.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AQSocketReader.h; sourceTree = "<group>"; };
+		3813A8CF154871E5000CFF34 /* AQSocketReader.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = AQSocketReader.m; sourceTree = "<group>"; };
+		3813A917154891EA000CFF34 /* AQHTTPServer.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AQHTTPServer.h; sourceTree = "<group>"; };
+		3813A918154891EA000CFF34 /* AQHTTPServer.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = AQHTTPServer.m; sourceTree = "<group>"; };
+		3813A91E154893D4000CFF34 /* AQHTTPConnection.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AQHTTPConnection.h; sourceTree = "<group>"; };
+		3813A91F154893D4000CFF34 /* AQHTTPConnection.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = AQHTTPConnection.m; sourceTree = "<group>"; };
+		3813A92615489A60000CFF34 /* AQHTTPRequestOperation.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AQHTTPRequestOperation.h; sourceTree = "<group>"; };
+		3813A92715489A60000CFF34 /* AQHTTPRequestOperation.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = AQHTTPRequestOperation.m; sourceTree = "<group>"; };
+		3813A92E1548ADC6000CFF34 /* CoreServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreServices.framework; path = System/Library/Frameworks/CoreServices.framework; sourceTree = SDKROOT; };
+		3813A9311548ADD8000CFF34 /* CFNetwork.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CFNetwork.framework; path = System/Library/Frameworks/CFNetwork.framework; sourceTree = SDKROOT; };
+		3813A9331549C639000CFF34 /* AQHTTPRangedRequestOperation.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AQHTTPRangedRequestOperation.h; sourceTree = "<group>"; };
+		3813A9341549C639000CFF34 /* AQHTTPRangedRequestOperation.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = AQHTTPRangedRequestOperation.m; sourceTree = "<group>"; };
+		3813A93A1549D095000CFF34 /* NSDateFormatter+AQHTTPDateFormatter.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "NSDateFormatter+AQHTTPDateFormatter.h"; sourceTree = "<group>"; };
+		3813A93B1549D095000CFF34 /* NSDateFormatter+AQHTTPDateFormatter.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = "NSDateFormatter+AQHTTPDateFormatter.m"; sourceTree = "<group>"; };
+		3813A93E1549DBF8000CFF34 /* DDData.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = DDData.h; sourceTree = "<group>"; };
+		3813A93F1549DBF8000CFF34 /* DDData.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = DDData.m; sourceTree = "<group>"; };
+		3813A9401549DBF8000CFF34 /* DDNumber.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = DDNumber.h; sourceTree = "<group>"; };
+		3813A9411549DBF8000CFF34 /* DDNumber.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = DDNumber.m; sourceTree = "<group>"; };
+		3813A9421549DBF8000CFF34 /* DDRange.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = DDRange.h; sourceTree = "<group>"; };
+		3813A9431549DBF8000CFF34 /* DDRange.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = DDRange.m; sourceTree = "<group>"; };
 		38634F2015472ADD007DA652 /* SimpleHTTPServer */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = SimpleHTTPServer; sourceTree = BUILT_PRODUCTS_DIR; };
 		38634F2415472ADD007DA652 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
 		38634F2715472ADD007DA652 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
-		38634F2A15472ADD007DA652 /* SimpleHTTPServer-Prefix.pch */ = {isa = PBXFileReference; path = "SimpleHTTPServer-Prefix.pch"; sourceTree = "<group>"; };
+		38634F2A15472ADD007DA652 /* SimpleHTTPServer-Prefix.pch */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "SimpleHTTPServer-Prefix.pch"; sourceTree = "<group>"; };
 		38634F2B15472ADD007DA652 /* SimpleHTTPServer.1 */ = {isa = PBXFileReference; lastKnownFileType = text.man; path = SimpleHTTPServer.1; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -38,6 +76,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3813A9321548ADD8000CFF34 /* CFNetwork.framework in Frameworks */,
+				3813A92F1548ADC6000CFF34 /* CoreServices.framework in Frameworks */,
 				38634F2515472ADD007DA652 /* Foundation.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -45,9 +85,25 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		3813A8C8154871E5000CFF34 /* AQSocket */ = {
+			isa = PBXGroup;
+			children = (
+				3813A8C9154871E5000CFF34 /* AQSocket.h */,
+				3813A8CA154871E5000CFF34 /* AQSocket.m */,
+				3813A8CB154871E5000CFF34 /* AQSocketIOChannel.h */,
+				3813A8CC154871E5000CFF34 /* AQSocketIOChannel.m */,
+				3813A8CD154871E5000CFF34 /* AQSocketReader+PrivateInternal.h */,
+				3813A8CE154871E5000CFF34 /* AQSocketReader.h */,
+				3813A8CF154871E5000CFF34 /* AQSocketReader.m */,
+			);
+			path = AQSocket;
+			sourceTree = "<group>";
+		};
 		38634F1515472ADD007DA652 = {
 			isa = PBXGroup;
 			children = (
+				3813A9311548ADD8000CFF34 /* CFNetwork.framework */,
+				3813A92E1548ADC6000CFF34 /* CoreServices.framework */,
 				38634F2615472ADD007DA652 /* SimpleHTTPServer */,
 				38634F2315472ADD007DA652 /* Frameworks */,
 				38634F2115472ADD007DA652 /* Products */,
@@ -73,7 +129,24 @@
 		38634F2615472ADD007DA652 /* SimpleHTTPServer */ = {
 			isa = PBXGroup;
 			children = (
+				3813A8C8154871E5000CFF34 /* AQSocket */,
 				38634F2715472ADD007DA652 /* main.m */,
+				3813A917154891EA000CFF34 /* AQHTTPServer.h */,
+				3813A918154891EA000CFF34 /* AQHTTPServer.m */,
+				3813A91E154893D4000CFF34 /* AQHTTPConnection.h */,
+				3813A91F154893D4000CFF34 /* AQHTTPConnection.m */,
+				3813A93A1549D095000CFF34 /* NSDateFormatter+AQHTTPDateFormatter.h */,
+				3813A93B1549D095000CFF34 /* NSDateFormatter+AQHTTPDateFormatter.m */,
+				3813A92615489A60000CFF34 /* AQHTTPRequestOperation.h */,
+				3813A92715489A60000CFF34 /* AQHTTPRequestOperation.m */,
+				3813A9331549C639000CFF34 /* AQHTTPRangedRequestOperation.h */,
+				3813A9341549C639000CFF34 /* AQHTTPRangedRequestOperation.m */,
+				3813A93E1549DBF8000CFF34 /* DDData.h */,
+				3813A93F1549DBF8000CFF34 /* DDData.m */,
+				3813A9401549DBF8000CFF34 /* DDNumber.h */,
+				3813A9411549DBF8000CFF34 /* DDNumber.m */,
+				3813A9421549DBF8000CFF34 /* DDRange.h */,
+				3813A9431549DBF8000CFF34 /* DDRange.m */,
 				38634F2B15472ADD007DA652 /* SimpleHTTPServer.1 */,
 				38634F2915472ADD007DA652 /* Supporting Files */,
 			);
@@ -114,8 +187,9 @@
 		38634F1715472ADD007DA652 /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
+				CLASSPREFIX = AQ;
 				LastUpgradeCheck = 0440;
-				ORGANIZATIONNAME = "Kobo Inc";
+				ORGANIZATIONNAME = "Jim Dovey";
 			};
 			buildConfigurationList = 38634F1A15472ADD007DA652 /* Build configuration list for PBXProject "SimpleHTTPServer" */;
 			compatibilityVersion = "Xcode 3.2";
@@ -140,6 +214,17 @@
 			buildActionMask = 2147483647;
 			files = (
 				38634F2815472ADD007DA652 /* main.m in Sources */,
+				3813A8D0154871E5000CFF34 /* AQSocket.m in Sources */,
+				3813A8D1154871E5000CFF34 /* AQSocketIOChannel.m in Sources */,
+				3813A8D2154871E5000CFF34 /* AQSocketReader.m in Sources */,
+				3813A919154891EA000CFF34 /* AQHTTPServer.m in Sources */,
+				3813A920154893D4000CFF34 /* AQHTTPConnection.m in Sources */,
+				3813A92815489A60000CFF34 /* AQHTTPRequestOperation.m in Sources */,
+				3813A9351549C63A000CFF34 /* AQHTTPRangedRequestOperation.m in Sources */,
+				3813A93C1549D095000CFF34 /* NSDateFormatter+AQHTTPDateFormatter.m in Sources */,
+				3813A9441549DBF8000CFF34 /* DDData.m in Sources */,
+				3813A9451549DBF8000CFF34 /* DDNumber.m in Sources */,
+				3813A9461549DBF8000CFF34 /* DDRange.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -152,6 +237,7 @@
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ARCHS = "$(ARCHS_STANDARD_64_BIT)";
 				CLANG_ENABLE_OBJC_ARC = YES;
+				COMBINE_HIDPI_IMAGES = YES;
 				COPY_PHASE_STRIP = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu99;
 				GCC_DYNAMIC_NO_PIC = NO;
@@ -167,7 +253,7 @@
 				GCC_WARN_ABOUT_RETURN_TYPE = YES;
 				GCC_WARN_UNINITIALIZED_AUTOS = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 10.8;
+				MACOSX_DEPLOYMENT_TARGET = 10.7;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = macosx;
 			};
@@ -179,6 +265,7 @@
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ARCHS = "$(ARCHS_STANDARD_64_BIT)";
 				CLANG_ENABLE_OBJC_ARC = YES;
+				COMBINE_HIDPI_IMAGES = YES;
 				COPY_PHASE_STRIP = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				GCC_C_LANGUAGE_STANDARD = gnu99;
@@ -188,7 +275,7 @@
 				GCC_WARN_ABOUT_RETURN_TYPE = YES;
 				GCC_WARN_UNINITIALIZED_AUTOS = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 10.8;
+				MACOSX_DEPLOYMENT_TARGET = 10.7;
 				SDKROOT = macosx;
 			};
 			name = Release;
@@ -230,6 +317,7 @@
 				38634F3115472ADD007DA652 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 	};

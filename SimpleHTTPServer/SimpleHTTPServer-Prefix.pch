@@ -3,5 +3,27 @@
 //
 
 #ifdef __OBJC__
-    #import <Foundation/Foundation.h>
+
+# import <Foundation/Foundation.h>
+# import <dispatch/dispatch.h>
+
+# define USING_MRR (!__has_feature(objc_arc))
+
+# if defined(OS_OBJECT_USE_OBJC) && OS_OBJECT_USE_OBJC
+#  define DISPATCH_USES_ARC !USING_MRR
+# else
+#  define DISPATCH_USES_ARC 0
+# endif
+
+#if __has_feature(objc_arc) && defined(__IPHONE_OS_VERSION_MIN_REQUIRED) && __IPHONE_OS_VERSION_MIN_REQUIRED >= __IPHONE_5_0
+# define __maybe_weak __weak
+# define property_weak weak
+#elif __has_feature(objc_arc) && defined(MAC_OS_X_VERSION_MIN_REQUIRED) && MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_7
+# define __maybe_weak __weak
+# define property_weak weak
+#else
+# define __maybe_weak __unsafe_unretained
+# define property_weak assign
+#endif
+
 #endif
