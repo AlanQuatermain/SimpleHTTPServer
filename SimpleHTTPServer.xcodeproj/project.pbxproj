@@ -14,7 +14,6 @@
 		3813A920154893D4000CFF34 /* AQHTTPConnection.m in Sources */ = {isa = PBXBuildFile; fileRef = 3813A91F154893D4000CFF34 /* AQHTTPConnection.m */; };
 		3813A92815489A60000CFF34 /* AQHTTPRequestOperation.m in Sources */ = {isa = PBXBuildFile; fileRef = 3813A92715489A60000CFF34 /* AQHTTPRequestOperation.m */; };
 		3813A92F1548ADC6000CFF34 /* CoreServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3813A92E1548ADC6000CFF34 /* CoreServices.framework */; };
-		3813A9321548ADD8000CFF34 /* CFNetwork.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3813A9311548ADD8000CFF34 /* CFNetwork.framework */; };
 		3813A9351549C63A000CFF34 /* AQHTTPRangedRequestOperation.m in Sources */ = {isa = PBXBuildFile; fileRef = 3813A9341549C639000CFF34 /* AQHTTPRangedRequestOperation.m */; };
 		3813A93C1549D095000CFF34 /* NSDateFormatter+AQHTTPDateFormatter.m in Sources */ = {isa = PBXBuildFile; fileRef = 3813A93B1549D095000CFF34 /* NSDateFormatter+AQHTTPDateFormatter.m */; };
 		3813A9441549DBF8000CFF34 /* DDData.m in Sources */ = {isa = PBXBuildFile; fileRef = 3813A93F1549DBF8000CFF34 /* DDData.m */; };
@@ -53,7 +52,6 @@
 		3813A92615489A60000CFF34 /* AQHTTPRequestOperation.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AQHTTPRequestOperation.h; sourceTree = "<group>"; };
 		3813A92715489A60000CFF34 /* AQHTTPRequestOperation.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = AQHTTPRequestOperation.m; sourceTree = "<group>"; };
 		3813A92E1548ADC6000CFF34 /* CoreServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreServices.framework; path = System/Library/Frameworks/CoreServices.framework; sourceTree = SDKROOT; };
-		3813A9311548ADD8000CFF34 /* CFNetwork.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CFNetwork.framework; path = System/Library/Frameworks/CFNetwork.framework; sourceTree = SDKROOT; };
 		3813A9331549C639000CFF34 /* AQHTTPRangedRequestOperation.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AQHTTPRangedRequestOperation.h; sourceTree = "<group>"; };
 		3813A9341549C639000CFF34 /* AQHTTPRangedRequestOperation.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = AQHTTPRangedRequestOperation.m; sourceTree = "<group>"; };
 		3813A93A1549D095000CFF34 /* NSDateFormatter+AQHTTPDateFormatter.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "NSDateFormatter+AQHTTPDateFormatter.h"; sourceTree = "<group>"; };
@@ -76,7 +74,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				3813A9321548ADD8000CFF34 /* CFNetwork.framework in Frameworks */,
 				3813A92F1548ADC6000CFF34 /* CoreServices.framework in Frameworks */,
 				38634F2515472ADD007DA652 /* Foundation.framework in Frameworks */,
 			);
@@ -102,8 +99,6 @@
 		38634F1515472ADD007DA652 = {
 			isa = PBXGroup;
 			children = (
-				3813A9311548ADD8000CFF34 /* CFNetwork.framework */,
-				3813A92E1548ADC6000CFF34 /* CoreServices.framework */,
 				38634F2615472ADD007DA652 /* SimpleHTTPServer */,
 				38634F2315472ADD007DA652 /* Frameworks */,
 				38634F2115472ADD007DA652 /* Products */,
@@ -121,6 +116,7 @@
 		38634F2315472ADD007DA652 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				3813A92E1548ADC6000CFF34 /* CoreServices.framework */,
 				38634F2415472ADD007DA652 /* Foundation.framework */,
 			);
 			name = Frameworks;
