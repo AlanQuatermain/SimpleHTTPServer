@@ -454,7 +454,7 @@ static NSString * const AQHTTPResponseRunLoopMode = @"AQHTTPResponseRunLoopMode"
     else if ( status == 200 && [myEtag length] != 0 )
     {
         // check for a matching Etag in the request
-        NSString * clientEtag = CFBridgingRelease(CFHTTPMessageCopyHeaderFieldValue(_request, CFSTR("If-None-Found")));
+        NSString * clientEtag = CFBridgingRelease(CFHTTPMessageCopyHeaderFieldValue(_request, CFSTR("If-None-Match")));
         if ( [clientEtag isEqualToString: myEtag] )
         {
             // 304 Not Modified

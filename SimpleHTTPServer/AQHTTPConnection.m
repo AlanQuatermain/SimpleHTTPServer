@@ -261,7 +261,7 @@
     
     if ( CFHTTPMessageIsHeaderComplete(_incomingMessage) )
     {
-#if 1
+#if DEBUGLOG
         NSString * httpVersion = CFBridgingRelease(CFHTTPMessageCopyVersion(_incomingMessage));
         NSString * httpMethod  = CFBridgingRelease(CFHTTPMessageCopyRequestMethod(_incomingMessage));
         NSURL * url = CFBridgingRelease(CFHTTPMessageCopyRequestURL(_incomingMessage));

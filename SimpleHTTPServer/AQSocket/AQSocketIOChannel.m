@@ -69,8 +69,8 @@
 {
     if ( [self class] == [AQSocketIOChannel class] )
     {
-        if ( dispatch_io_read != NULL )
-            return ( [AQSocketDispatchIOChannel allocWithZone: zone] );
+//        if ( dispatch_io_read != NULL )
+//            return ( [AQSocketDispatchIOChannel allocWithZone: zone] );
         
         return ( [AQSocketLegacyIOChannel allocWithZone: zone] );
     }
@@ -223,7 +223,9 @@
     // passed an immutable NSData, the copy is actually only a retain.
     // We convert it to a CFDataRef in order to get manual reference counting
     // semantics in order to keep the data object alive until the dispatch_data_t
-    // in which we're using it is itself released.
+    // in which we're using it is itself released. This is necessary because when using
+    // ARC we can't call -release, so there would be no reference to the ObjC object
+    // within the cleanup block, thus nothing keeping it retained...
     CFDataRef staticData = CFDataCreateCopy(kCFAllocatorDefault, (__bridge CFDataRef)data);
     
     dispatch_data_t ddata = dispatch_data_create(CFDataGetBytePtr(staticData), CFDataGetLength(staticData), dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{

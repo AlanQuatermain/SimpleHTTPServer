@@ -335,7 +335,10 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
     socklen_t slen = sizeof(struct sockaddr_in);
     getsockname(CFSocketGetNative(_socketRef), (struct sockaddr *)&myAddr, &slen);
     
-    NSLog(@"Using port %hu", ntohs(myAddr.sin_port));
+    char addrStr[INET6_ADDRSTRLEN];
+    inet_ntop(myAddr.sin_family, &myAddr.sin_addr, addrStr, INET6_ADDRSTRLEN);
+
+    NSLog(@"Listening on %s:%hu", addrStr, ntohs(myAddr.sin_port));
     
     CFSocketSetSocketFlags(_socketRef, kCFSocketAutomaticallyReenableAcceptCallBack);
     CFSocketEnableCallBacks(_socketRef, kCFSocketAcceptCallBack);
@@ -585,6 +588,17 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
 
 - (NSString *) description
 {
+    static NSArray * __statusStrings = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        __statusStrings = [[NSArray alloc] initWithObjects: @"AQSocketUnconnected", @"AQSocketConnecting", @"AQSocketListening", @"AQSocketConnected", @"AQSocketDisconnected", nil];
+    });
+    
+    if ( _socketRef == NULL )
+    {
+        return ( [NSString stringWithFormat: @"%@: status=%@", [super description], [__statusStrings objectAtIndex: _status]] );
+    }
+    
     struct sockaddr_storage sockname = {0};
     struct sockaddr_storage peername = {0};
     socklen_t socknamelen = sockname.ss_len = sizeof(struct sockaddr_storage);
@@ -597,14 +611,40 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
     char peernamestr[INET6_ADDRSTRLEN];
     
     if ( gotMine )
-        inet_ntop(sockname.ss_family, &sockname, socknamestr, INET6_ADDRSTRLEN);
+    {
+        if ( sockname.ss_family == AF_INET )
+        {
+            struct sockaddr_in *pIn = (struct sockaddr_in *)&sockname;
+            inet_ntop(sockname.ss_family, &pIn->sin_addr, socknamestr, INET6_ADDRSTRLEN);
+        }
+        else
+        {
+            struct sockaddr_in6 *pIn = (struct sockaddr_in6 *)&sockname;
+            inet_ntop(sockname.ss_family, &pIn->sin6_addr, socknamestr, INET6_ADDRSTRLEN);
+        }
+    }
     else
+    {
         socknamestr[0] = '\0';
+    }
     
     if ( gotPeer )
-        inet_ntop(peername.ss_family, &peername, peernamestr, INET6_ADDRSTRLEN);
+    {
+        if ( peername.ss_family == AF_INET )
+        {
+            struct sockaddr_in *pIn = (struct sockaddr_in *)&peername;
+            inet_ntop(peername.ss_family, &pIn->sin_addr, peernamestr, INET6_ADDRSTRLEN);
+        }
+        else
+        {
+            struct sockaddr_in6 *pIn = (struct sockaddr_in6 *)&peername;
+            inet_ntop(peername.ss_family, &pIn->sin6_addr, peernamestr, INET6_ADDRSTRLEN);
+        }
+    }
     else
+    {
         peernamestr[0] = '\0';
+    }
     
     socknamestr[INET6_ADDRSTRLEN-1] = '\0';
     peernamestr[INET6_ADDRSTRLEN-1] = '\0';
@@ -633,12 +673,6 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
     
     NSString * myAddr = (gotMine ? [NSString stringWithFormat: @"%s:%hu", socknamestr, sockport] : @"<unknown>");
     NSString * peerAddr = (gotMine ? [NSString stringWithFormat: @"%s:%hu", peernamestr, peerport] : @"<unknown>");
-    
-    static NSArray * __statusStrings = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        __statusStrings = [[NSArray alloc] initWithObjects: @"AQSocketUnconnected", @"AQSocketConnecting", @"AQSocketListening", @"AQSocketConnected", @"AQSocketDisconnected", nil];
-    });
     
     return ( [NSString stringWithFormat: @"%@: {status=%@, addr=%@, peer=%@}", [super description], [__statusStrings objectAtIndex: _status], myAddr, peerAddr] );
 }
@@ -756,6 +790,10 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
     AQSocket * child = [[AQSocket alloc] initWithConnectedSocket: clientSock];
     if ( child == nil )
         return;
+    
+#if DEBUGLOG
+    NSLog(@"Listening socket %@ accepted new connection on child socket %@", self, child);
+#endif
     
     // Inform the client about the appearance of the child socket.
     // It's up to the client to keep it around -- we just pass it on as appropriate.
