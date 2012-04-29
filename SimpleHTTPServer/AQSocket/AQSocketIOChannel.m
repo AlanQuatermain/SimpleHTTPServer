@@ -139,6 +139,9 @@
 
 - (void) close
 {
+#if DEBUGLOG
+    NSLog(@"IO channel %@ closing down.", self);
+#endif
     if ( _io != NULL )
     {
         // swap out our _io variable so we don't get an invalid access should the cleanup handler called by dispatch_io_close() also call into here
@@ -221,21 +224,23 @@
     // We convert it to a CFDataRef in order to get manual reference counting
     // semantics in order to keep the data object alive until the dispatch_data_t
     // in which we're using it is itself released.
-    NSData * copiedData = [data copy];
-    CFDataRef staticData = CFBridgingRetain(copiedData);
+    CFDataRef staticData = CFDataCreateCopy(kCFAllocatorDefault, (__bridge CFDataRef)data);
     
     dispatch_data_t ddata = dispatch_data_create(CFDataGetBytePtr(staticData), CFDataGetLength(staticData), dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         // When the dispatch data object is deallocated, release our CFData ref.
         CFRelease(staticData);
     });
     
-#if USING_MRR
-    // In manual retain/release mode, the call to [data copy] returns +1, and the CFBridgingRetain() returns +1. The block above
-    // releases the reference from CFBridgingRetain(), so we need to perform another release to match the [data copy] call.
-    [copiedData release];
+#if DEBUGLOG
+    static volatile int32_t __tag = 0;
+    int32_t tag = OSAtomicIncrement32Barrier(&__tag);
+    NSLog(@"Dispatch channel enqueueing send of %lu bytes of data; tag = %d", (unsigned long)[data length], tag);
 #endif
     
     dispatch_io_write(_io, 0, ddata, _q, ^(_Bool done, dispatch_data_t data, int error) {
+#if DEBUGLOG
+        NSLog(@"dispatch_io_write() callback for tag %d: done=%d, data=%lu bytes, error=%d (%s)", tag, done, (data == NULL ? 0 : dispatch_data_get_size(data)), error, strerror(error));
+#endif
         if ( completionCopy == nil )
             return;     // no point going further, really
         

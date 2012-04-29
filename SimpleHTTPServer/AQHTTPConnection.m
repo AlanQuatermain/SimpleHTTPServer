@@ -9,8 +9,7 @@
 #import "AQHTTPConnection.h"
 #import "AQSocket/AQSocket.h"
 #import "AQSocket/AQSocketReader.h"
-#import "AQHTTPRequestOperation.h"
-#import "AQHTTPRangedRequestOperation.h"
+#import "AQHTTPFileResponseOperation.h"
 #import "DDRange.h"
 #import "DDNumber.h"
 
@@ -31,7 +30,7 @@
     CFHTTPMessageRef _incomingMessage;
 }
 
-@synthesize delegate;
+@synthesize delegate, documentRoot=_documentRoot;
 
 - (id) initWithSocket: (AQSocket *) aSocket documentRoot: (NSURL *) documentRoot
 {
@@ -95,6 +94,11 @@
                 break;
         }
     };
+}
+
+- (BOOL) supportsPipelinedRequests
+{
+    return ( YES );
 }
 
 - (NSArray *) parseRangeRequest:(NSString *)rangeHeader withContentLength:(UInt64)contentLength
@@ -226,6 +230,25 @@
 	return [NSArray arrayWithArray: ranges];
 }
 
+- (AQHTTPResponseOperation *) responseOperationForRequest: (CFHTTPMessageRef) request
+{
+    NSString * rangeHeader = CFBridgingRelease(CFHTTPMessageCopyHeaderFieldValue(_incomingMessage, CFSTR("Range")));
+    NSArray * ranges = nil;
+    if ( rangeHeader != nil )
+    {
+        NSString * path = [(NSURL *)CFBridgingRelease(CFHTTPMessageCopyRequestURL(_incomingMessage)) path];
+        path = [[_documentRoot path] stringByAppendingPathComponent: path];
+        ranges = [self parseRangeRequest: rangeHeader withContentLength: [[[NSFileManager defaultManager] attributesOfItemAtPath: path error: NULL] fileSize]];
+    }
+    
+    // the best thing about this approach? It works with pipelining!
+    AQHTTPFileResponseOperation * op = [[AQHTTPFileResponseOperation alloc] initWithRequest: request socket: _socket ranges: ranges forConnection: self];
+#if USING_MRR
+    [op autorelease];
+#endif
+    return ( op );
+}
+
 - (void) _handleIncomingData: (AQSocketReader *) reader
 {
     NSLog(@"Data arriving on %p; length=%lu", self, reader.length);
@@ -261,34 +284,9 @@
         
         NSLog(@"Incoming request:\n%@", debugStr);
 #endif
-        NSOperation * op = nil;
-        
-        NSString * rangeHeader = CFBridgingRelease(CFHTTPMessageCopyHeaderFieldValue(_incomingMessage, CFSTR("Range")));
-        if ( rangeHeader != nil )
-        {
-            NSString * path = [(NSURL *)CFBridgingRelease(CFHTTPMessageCopyRequestURL(_incomingMessage)) path];
-            path = [[_documentRoot path] stringByAppendingPathComponent: path];
-            NSArray * ranges = [self parseRangeRequest: rangeHeader withContentLength: [[[NSFileManager defaultManager] attributesOfItemAtPath: path error: NULL] fileSize]];
-            if ( [ranges count] != 0 )
-            {
-                AQHTTPRangedRequestOperation * rop = [[AQHTTPRangedRequestOperation alloc] initWithRequest: _incomingMessage socket: _socket documentRoot: _documentRoot ranges: ranges];
-                rop.connection = self;
-                op = rop;
-            }
-        }
-        
-        if ( op == nil )
-        {
-            // the best thing about this approach? It works with pipelining! (well, kinda)
-            AQHTTPRequestOperation * rop = [[AQHTTPRequestOperation alloc] initWithRequest: _incomingMessage socket: _socket documentRoot: _documentRoot];
-            rop.connection = self;
-            op = rop;
-        }
-        
-        [_requestQ addOperation: op];
-#if USING_MRR
-        [op release];
-#endif
+        AQHTTPResponseOperation * op = [self responseOperationForRequest: _incomingMessage];
+        if ( op != nil )
+            [_requestQ addOperation: op];
         
         CFRelease(_incomingMessage);
         _incomingMessage = NULL;

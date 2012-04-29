@@ -538,6 +538,12 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
         _socketRef = NULL;
         close(sock);
     }
+    
+    // We set 'disconnected' state if we close because of a connection reset or broken pipe, etc.
+    // If that isn't set, then this is considered a voluntary disconnect, so we mark the socket
+    // as being reusable.
+    if ( _status != AQSocketDisconnected )
+        _status = AQSocketUnconnected;
 }
 
 - (void) writeBytes: (NSData *) bytes
@@ -584,13 +590,21 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
     socklen_t socknamelen = sockname.ss_len = sizeof(struct sockaddr_storage);
     socklen_t peernamelen = peername.ss_len = sizeof(struct sockaddr_storage);
     
-    getsockname(CFSocketGetNative(_socketRef), (struct sockaddr *)&sockname, &socknamelen);
-    getpeername(CFSocketGetNative(_socketRef), (struct sockaddr *)&peername, &peernamelen);
+    BOOL gotMine = (getsockname(CFSocketGetNative(_socketRef), (struct sockaddr *)&sockname, &socknamelen) == 0);
+    BOOL gotPeer = (getpeername(CFSocketGetNative(_socketRef), (struct sockaddr *)&peername, &peernamelen) == 0);
     
     char socknamestr[INET6_ADDRSTRLEN];
     char peernamestr[INET6_ADDRSTRLEN];
-    inet_ntop(sockname.ss_family, &sockname, socknamestr, INET6_ADDRSTRLEN);
-    inet_ntop(peername.ss_family, &peername, peernamestr, INET6_ADDRSTRLEN);
+    
+    if ( gotMine )
+        inet_ntop(sockname.ss_family, &sockname, socknamestr, INET6_ADDRSTRLEN);
+    else
+        socknamestr[0] = '\0';
+    
+    if ( gotPeer )
+        inet_ntop(peername.ss_family, &peername, peernamestr, INET6_ADDRSTRLEN);
+    else
+        peernamestr[0] = '\0';
     
     socknamestr[INET6_ADDRSTRLEN-1] = '\0';
     peernamestr[INET6_ADDRSTRLEN-1] = '\0';
@@ -601,7 +615,7 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
         struct sockaddr_in *p = (struct sockaddr_in *)&sockname;
         sockport = ntohs(p->sin_port);
     }
-    else
+    else if ( sockname.ss_family == AF_INET6 )
     {
         struct sockaddr_in6 *p = (struct sockaddr_in6 *)&sockname;
         sockport = ntohs(p->sin6_port);
@@ -611,14 +625,14 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
         struct sockaddr_in *p = (struct sockaddr_in *)&peername;
         peerport = ntohs(p->sin_port);
     }
-    else
+    else if ( peername.ss_family == AF_INET6 )
     {
         struct sockaddr_in6 *p = (struct sockaddr_in6 *)&peername;
         peerport = ntohs(p->sin6_port);
     }
     
-    NSString * myAddr = [NSString stringWithFormat: @"%s:%hu", socknamestr, sockport];
-    NSString * peerAddr = [NSString stringWithFormat: @"%s:%hu", peernamestr, peerport];
+    NSString * myAddr = (gotMine ? [NSString stringWithFormat: @"%s:%hu", socknamestr, sockport] : @"<unknown>");
+    NSString * peerAddr = (gotMine ? [NSString stringWithFormat: @"%s:%hu", peernamestr, peerport] : @"<unknown>");
     
     static NSArray * __statusStrings = nil;
     static dispatch_once_t onceToken;
@@ -686,7 +700,7 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
     _socketReader = aSocketReader;
 #endif
     
-    __maybe_weak AQSocket *weakSelf = self;
+    __block_weak AQSocket *weakSelf = self;
     
     // Now we install a callback to tell us when new data arrives.
     _socketIO.readHandler = ^(NSData * data, NSError * error){
@@ -703,10 +717,9 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
             else
             {
                 // socket closed
-                NSLog(@"zero-length data received, closing socket");
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    [strongSelf close];
-                });
+                strongSelf->_status = AQSocketDisconnected;
+                NSLog(@"Socket %@: zero-length data received, closing now", strongSelf);
+                dispatch_async(dispatch_get_main_queue(), ^{[strongSelf close];});
             }
         }
         else if ( error != nil )
@@ -714,6 +727,12 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
             NSLog(@"Error on %@; %@", strongSelf, error);
             if ( strongSelf.eventHandler != nil )
                 strongSelf.eventHandler(AQSocketErrorEncountered, error);
+        }
+        else if ( data == nil )
+        {
+            strongSelf->_status = AQSocketDisconnected;
+            NSLog(@"Connection reset for %@", strongSelf);
+            dispatch_async(dispatch_get_main_queue(), ^{[strongSelf close];});
         }
     };
 }

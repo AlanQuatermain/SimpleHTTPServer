@@ -16,6 +16,8 @@
     
     NSString *      _address;
     NSURL *         _root;
+    
+    Class           _connectionClass;
 }
 
 - (id) initWithAddress: (NSString *) address root: (NSURL *) root
@@ -71,6 +73,19 @@
     [_connections removeAllObjects];
     _serverSocket.eventHandler = nil;
     _serverSocket = nil;
+}
+
+- (void) setConnectionClass: (Class) connectionClass
+{
+    if ( connectionClass == Nil || connectionClass == [AQHTTPConnection class] )
+    {
+        // resetting to the default behaviour.
+        _connectionClass = Nil;
+        return;
+    }
+    
+    if ( [connectionClass isSubclassOfClass: [AQHTTPConnection class]] )
+        _connectionClass = connectionClass;
 }
 
 #pragma mark - AQHTTPConnectionDelegate Protocol
