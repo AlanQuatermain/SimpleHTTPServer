@@ -99,7 +99,7 @@ static NSString * const AQHTTPResponseRunLoopMode = @"AQHTTPResponseRunLoopMode"
         
         // determine if the item is accessible
         NSUInteger status = [self statusCodeForItemAtPath: path];
-        if ( status == 200 )
+        if ( status == 200 || status == 206 )
         {
             // we might want to override this with a 500 error if no
             // input stream or file accessor is forthcoming

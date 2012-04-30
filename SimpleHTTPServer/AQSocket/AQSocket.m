@@ -239,7 +239,9 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
 #endif
 }
 
-- (BOOL) listenForConnections: (BOOL) useLoopback error: (NSError **) error
+- (BOOL) listenForConnections: (BOOL) useLoopback
+                      useIPv6: (BOOL) useIPv6
+                        error: (NSError **) error
 {
     if ( _status != AQSocketUnconnected )
     {
@@ -268,15 +270,26 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
         return ( NO );
     }
     
-    struct sockaddr_in saddr = {0};
-    NSData * sockData = [[NSData alloc] initWithBytesNoCopy: &saddr length: sizeof(struct sockaddr_in) freeWhenDone: NO];
-    
-    // Create a local address to which we'll bind. Sticking with IPv4 for now.
-    struct sockaddr_in *pIn = &saddr;
-    pIn->sin_family = AF_INET;
-    pIn->sin_len = sizeof(struct sockaddr_in);
-    pIn->sin_port = 0;
-    pIn->sin_addr.s_addr = htonl((useLoopback ? INADDR_LOOPBACK : INADDR_ANY));
+    // Create a local address to which we'll bind.
+    struct sockaddr_storage saddr = {0};
+    if ( useIPv6 )
+    {
+        saddr.ss_len = sizeof(struct sockaddr_in6);
+        saddr.ss_family = AF_INET6;
+        
+        struct sockaddr_in6 *pIn = (struct sockaddr_in6 *)&saddr;
+        pIn->sin6_port = 0;
+        pIn->sin6_addr = (useLoopback? in6addr_loopback : in6addr_any);
+    }
+    else
+    {
+        saddr.ss_len = sizeof(struct sockaddr_in);
+        saddr.ss_family = AF_INET;
+        
+        struct sockaddr_in *pIn = (struct sockaddr_in *)&saddr;
+        pIn->sin_port = 0;
+        pIn->sin_addr.s_addr = htonl((useLoopback ? INADDR_LOOPBACK : INADDR_ANY));
+    }
     
     // Create the socket with the appropriate socket family from the address
     // structure.
@@ -288,7 +301,7 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
         .copyDescription = CFCopyDescription
     };
     
-    _socketRef = CFSocketCreate(kCFAllocatorDefault, saddr.sin_family, _socketType, _socketProtocol, kCFSocketAcceptCallBack, _CFSocketAcceptCallBack, &ctx);
+    _socketRef = CFSocketCreate(kCFAllocatorDefault, saddr.ss_family, _socketType, _socketProtocol, kCFSocketAcceptCallBack, _CFSocketAcceptCallBack, &ctx);
     if ( _socketRef == NULL )
     {
         // We failed to create the socket, so build an error (if appropriate)
@@ -323,6 +336,8 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
 #endif
                        );
 #endif
+    
+    NSData * sockData = [[NSData alloc] initWithBytesNoCopy: &saddr length: saddr.ss_len freeWhenDone: NO];
     CFSocketError sockErr = CFSocketSetAddress(_socketRef, (__bridge CFDataRef)sockData);
 #if USING_MRR
     [sockData release];
@@ -331,14 +346,16 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
         return ( NO );
     
     // Find out what port we were assigned.
-    struct sockaddr_in myAddr = {0};
-    socklen_t slen = sizeof(struct sockaddr_in);
+    struct sockaddr_storage myAddr = {0};
+    socklen_t slen = sizeof(struct sockaddr_storage);
     getsockname(CFSocketGetNative(_socketRef), (struct sockaddr *)&myAddr, &slen);
     
     char addrStr[INET6_ADDRSTRLEN];
-    inet_ntop(myAddr.sin_family, &myAddr.sin_addr, addrStr, INET6_ADDRSTRLEN);
+    struct sockaddr_in *pIn4 = (struct sockaddr_in *)&myAddr;
+    struct sockaddr_in6 *pIn6 = (struct sockaddr_in6 *)&myAddr;
+    inet_ntop(myAddr.ss_family, (myAddr.ss_family == AF_INET ? (void *)&pIn4->sin_addr : (void *)&pIn6->sin6_addr), addrStr, INET6_ADDRSTRLEN);
 
-    NSLog(@"Listening on %s:%hu", addrStr, ntohs(myAddr.sin_port));
+    NSLog(@"Listening on %s:%hu", addrStr, (in_port_t)(myAddr.ss_family == AF_INET ? ntohs(pIn4->sin_port) : ntohs(pIn6->sin6_port)));
     
     CFSocketSetSocketFlags(_socketRef, kCFSocketAutomaticallyReenableAcceptCallBack);
     CFSocketEnableCallBacks(_socketRef, kCFSocketAcceptCallBack);

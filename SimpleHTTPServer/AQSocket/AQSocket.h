@@ -122,11 +122,14 @@ typedef void (^AQSocketEventHandler)(AQSocketEvent event, id info);
  IPv4/IPV6 'any' address. It will choose its own port, which can be obtained using
  the `port` property.
  @param useLoopback If `YES`, bind to the loopback interface. Otherwise, use 'any'.
+ @param useIPv6 If `YES`, use the IPv6 protocol rather than IPv4.
  @param error If this method returns `NO`, then on return this value contains
  an NSError object detailing the error.
  @result `YES` if the connection could be bound, `NO` otherwise.
  */
-- (BOOL) listenForConnections: (BOOL) useLoopback error: (NSError **) error;
+- (BOOL) listenForConnections: (BOOL) useLoopback
+                      useIPv6: (BOOL) useIPv6
+                        error: (NSError **) error;
 
 /**
  This is a wrapper around connectToAddress:error: which allows

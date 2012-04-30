@@ -11,7 +11,8 @@
 
 @implementation AQHTTPServer
 {
-    AQSocket *      _serverSocket;
+    AQSocket *      _serverSocket4;
+    AQSocket *      _serverSocket6;
     NSMutableSet *  _connections;
     
     NSString *      _address;
@@ -35,13 +36,14 @@
 
 - (BOOL) start: (NSError **) error
 {
-    if ( _serverSocket != nil )
+    if ( _serverSocket4 != nil || _serverSocket6 != nil )
         return ( NO );
     
-    _serverSocket = [[AQSocket alloc] init];
+    _serverSocket4 = [[AQSocket alloc] init];
+    _serverSocket6 = [[AQSocket alloc] init];
     
     AQHTTPServer * __maybe_weak server = self;
-    _serverSocket.eventHandler = ^(AQSocketEvent event, id info) {
+    AQSocketEventHandler handlerBlock = ^(AQSocketEvent event, id info) {
         if ( event != AQSocketEventAcceptedNewConnection )
             return;
         
@@ -58,8 +60,33 @@
         NSLog(@"Created new connection %@", newConnection);
     };
     
+    _serverSocket4.eventHandler = handlerBlock;
+    _serverSocket6.eventHandler = handlerBlock;
+    
     BOOL useLoopback = ([_address caseInsensitiveCompare: @"loopback"] == NSOrderedSame || [_address caseInsensitiveCompare: @"localhost"] == NSOrderedSame);
-    return ( [_serverSocket listenForConnections: useLoopback error: error] );
+    
+    if ( [_serverSocket4 listenForConnections: useLoopback useIPv6: NO error: error] == NO )
+    {
+#if USING_MRR
+        [_serverSocket4 release];
+        [_serverSocket6 release];
+#endif
+        _serverSocket4 = nil;
+        _serverSocket6 = nil;
+        return ( NO );
+    }
+    
+    NSError * ipv6Error = nil;
+    if ( [_serverSocket6 listenForConnections: useLoopback useIPv6: YES error: &ipv6Error] == NO )
+    {
+        // drop down to IPv4 only
+#if USING_MRR
+        [_serverSocket6 release];
+#endif
+        _serverSocket6 = nil;
+    }
+    
+    return ( YES );
 }
 
 - (void) stop
@@ -71,8 +98,14 @@
     }
     
     [_connections removeAllObjects];
-    _serverSocket.eventHandler = nil;
-    _serverSocket = nil;
+    _serverSocket4.eventHandler = nil;
+    _serverSocket6.eventHandler = nil;
+#if USING_MRR
+    [_serverSocket4 release];
+    [_serverSocket6 release];
+#endif
+    _serverSocket4 = nil;
+    _serverSocket6 = nil;
 }
 
 - (void) setConnectionClass: (Class) connectionClass

@@ -69,8 +69,8 @@
 {
     if ( [self class] == [AQSocketIOChannel class] )
     {
-//        if ( dispatch_io_read != NULL )
-//            return ( [AQSocketDispatchIOChannel allocWithZone: zone] );
+        if ( dispatch_io_read != NULL )
+            return ( [AQSocketDispatchIOChannel allocWithZone: zone] );
         
         return ( [AQSocketLegacyIOChannel allocWithZone: zone] );
     }
