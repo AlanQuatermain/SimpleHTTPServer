@@ -7,10 +7,11 @@
 //
 
 #import "AQHTTPConnection.h"
-#import "AQSocket/AQSocket.h"
-#import "AQSocket/AQSocketReader.h"
-#import "AQHTTPRequestOperation.h"
-#import "AQHTTPRangedRequestOperation.h"
+#import "AQHTTPConnection_PrivateInternal.h"
+#import "AQHTTPServer.h"
+#import "AQSocket.h"
+#import "AQSocketReader.h"
+#import "AQHTTPFileResponseOperation.h"
 #import "DDRange.h"
 #import "DDNumber.h"
 
@@ -29,24 +30,36 @@
     AQSocket * _socket;
     NSURL * _documentRoot;
     CFHTTPMessageRef _incomingMessage;
+    
+    NSTimer *   _idleDisconnectionTimer;
+    
+    AQHTTPServer * __maybe_weak _server;
 }
 
-@synthesize delegate;
+@synthesize delegate, documentRoot=_documentRoot, socket=_socket, server=_server;
 
-- (id) initWithSocket: (AQSocket *) aSocket documentRoot: (NSURL *) documentRoot
+- (id) initWithSocket: (AQSocket *) aSocket documentRoot: (NSURL *) documentRoot forServer: (AQHTTPServer *) server
 {
     self = [super init];
     if ( self == nil )
         return ( nil );
     
-    _documentRoot = documentRoot;
+    _documentRoot = [documentRoot copy];
+    _server = server;       // weak/unsafe reference
     
     _requestQ = [NSOperationQueue new];
     _requestQ.maxConcurrentOperationCount = 1;
     
     // don't install the event handler until we've got the queue ready: the event handler might be called immediately if data has already arrived.
     _socket = aSocket;
-    [self _setEventHandlerOnSocket];
+#if USING_MRR
+    [_socket retain];
+#endif
+    
+    // we need to wait for subclass initialization to complete before we install our event handlers
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.1 * NSEC_PER_SEC), dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^(void){
+        [self _setEventHandlerOnSocket];
+    });
     
     return ( self );
 }
@@ -55,7 +68,11 @@
 {
     if ( _incomingMessage != NULL )
         CFRelease(_incomingMessage);
+    _socket.eventHandler = nil;
 #if USING_MRR
+    [_documentRoot release];
+    [_socket release];
+    [_requestQ release];
     [super dealloc];
 #endif
 }
@@ -64,6 +81,7 @@
 {
     [_requestQ cancelAllOperations];
     [_socket close];
+    _socket.eventHandler = nil;
 #if USING_MRR
     [_socket release];
 #endif
@@ -72,10 +90,38 @@
     [self.delegate connectionDidClose: self];
 }
 
+- (void) setDocumentRoot: (NSURL *) documentRoot
+{
+    dispatch_block_t setterBody = ^{
+#if USING_MRR
+        NSURL * newValue = [documentRoot copy];
+        NSURL * oldValue = _documentRoot;
+        _documentRoot = newValue;
+        [oldValue release];
+#else
+        _documentRoot = [documentRoot copy];
+#endif
+        [self documentRootDidChange];
+    };
+    
+    if ( [_requestQ operationCount] != 0 )
+    {
+        // wait until the in-flight operations have completed before updating the value
+        [[[_requestQ operations] lastObject] setCompletionBlock: setterBody];
+        return;
+    }
+    
+    // otherwise, we can go ahead and do it now
+    setterBody();
+}
+
 - (void) _setEventHandlerOnSocket
 {
     __maybe_weak AQHTTPConnection * weakSelf = self;
     _socket.eventHandler = ^(AQSocketEvent event, id info){
+#if DEBUGLOG
+        NSLog(@"Socket event occurred: %d (%@)", event, info);
+#endif
         AQHTTPConnection * strongSelf = weakSelf;
         switch ( event )
         {
@@ -95,6 +141,11 @@
                 break;
         }
     };
+}
+
+- (BOOL) supportsPipelinedRequests
+{
+    return ( YES );
 }
 
 - (NSArray *) parseRangeRequest:(NSString *)rangeHeader withContentLength:(UInt64)contentLength
@@ -226,24 +277,80 @@
 	return [NSArray arrayWithArray: ranges];
 }
 
+- (void) _maybeInstallIdleTimer
+{
+    if ( [_requestQ operationCount] != 0 )
+        return;
+    
+    if ( _idleDisconnectionTimer != nil )
+        return;
+    
+    _idleDisconnectionTimer = [[NSTimer alloc] initWithFireDate: [NSDate dateWithTimeIntervalSinceNow: 2.0]
+                                                       interval: 2.0
+                                                         target: self
+                                                       selector: @selector(_checkIdleTimer:)
+                                                       userInfo: nil
+                                                        repeats: NO];
+    [[NSRunLoop mainRunLoop] addTimer: _idleDisconnectionTimer forMode: NSRunLoopCommonModes];
+}
+
+- (void) _checkIdleTimer: (NSTimer *) timer
+{
+    if ( [_requestQ operationCount] != 0 )
+        return;
+    
+    // disconnect due to under-utilization
+    [self close];
+}
+
+- (AQHTTPResponseOperation *) responseOperationForRequest: (CFHTTPMessageRef) request
+{
+    NSString * rangeHeader = CFBridgingRelease(CFHTTPMessageCopyHeaderFieldValue(request, CFSTR("Range")));
+    NSArray * ranges = nil;
+    if ( rangeHeader != nil )
+    {
+        NSString * path = [(NSURL *)CFBridgingRelease(CFHTTPMessageCopyRequestURL(request)) path];
+        path = [[_documentRoot path] stringByAppendingPathComponent: path];
+        ranges = [self parseRangeRequest: rangeHeader withContentLength: [[[NSFileManager defaultManager] attributesOfItemAtPath: path error: NULL] fileSize]];
+    }
+    
+    // the best thing about this approach? It works with pipelining!
+    AQHTTPFileResponseOperation * op = [[AQHTTPFileResponseOperation alloc] initWithRequest: request socket: _socket ranges: ranges forConnection: self];
+#if USING_MRR
+    [op autorelease];
+#endif
+    return ( op );
+}
+
 - (void) _handleIncomingData: (AQSocketReader *) reader
 {
-    NSLog(@"Data arriving on %p; length=%lu", self, reader.length);
+#if DEBUGLOG
+    NSLog(@"Data arriving on %p; length=%lu", self, (unsigned long)reader.length);
+#endif
     
-    if ( _incomingMessage == NULL )
-        _incomingMessage = CFHTTPMessageCreateEmpty(kCFAllocatorDefault, TRUE);
+    CFHTTPMessageRef msg = NULL;
+    if ( _incomingMessage != NULL )
+        msg = (CFHTTPMessageRef)CFRetain(_incomingMessage);
+    else
+        msg = CFHTTPMessageCreateEmpty(kCFAllocatorDefault, TRUE);
     
     NSData * data = [reader readBytes: reader.length];
-    CFHTTPMessageAppendBytes(_incomingMessage, [data bytes], [data length]);
+    CFHTTPMessageAppendBytes(msg, [data bytes], [data length]);
     
-    if ( CFHTTPMessageIsHeaderComplete(_incomingMessage) )
+    if ( CFHTTPMessageIsHeaderComplete(msg) )
     {
-#if 1
-        NSString * httpVersion = CFBridgingRelease(CFHTTPMessageCopyVersion(_incomingMessage));
-        NSString * httpMethod  = CFBridgingRelease(CFHTTPMessageCopyRequestMethod(_incomingMessage));
-        NSURL * url = CFBridgingRelease(CFHTTPMessageCopyRequestURL(_incomingMessage));
-        NSDictionary * headers = CFBridgingRelease(CFHTTPMessageCopyAllHeaderFields(_incomingMessage));
-        NSData * body = CFBridgingRelease(CFHTTPMessageCopyBody(_incomingMessage));
+        if ( _incomingMessage == msg && _incomingMessage != NULL )
+        {
+            CFRelease(_incomingMessage);
+            _incomingMessage = NULL;
+        }
+        
+#if DEBUGLOG
+        NSString * httpVersion = CFBridgingRelease(CFHTTPMessageCopyVersion(msg));
+        NSString * httpMethod  = CFBridgingRelease(CFHTTPMessageCopyRequestMethod(msg));
+        NSURL * url = CFBridgingRelease(CFHTTPMessageCopyRequestURL(msg));
+        NSDictionary * headers = CFBridgingRelease(CFHTTPMessageCopyAllHeaderFields(msg));
+        NSData * body = CFBridgingRelease(CFHTTPMessageCopyBody(msg));
         
         NSMutableString * debugStr = [NSMutableString string];
         [debugStr appendFormat: @"%@ %@ \"%@\"\n", httpVersion, httpMethod, [url absoluteString]];
@@ -261,51 +368,54 @@
         
         NSLog(@"Incoming request:\n%@", debugStr);
 #endif
-        NSOperation * op = nil;
-        
-        NSString * rangeHeader = CFBridgingRelease(CFHTTPMessageCopyHeaderFieldValue(_incomingMessage, CFSTR("Range")));
-        if ( rangeHeader != nil )
+        AQHTTPResponseOperation * op = [self responseOperationForRequest: msg];
+        if ( op != nil )
         {
-            NSString * path = [(NSURL *)CFBridgingRelease(CFHTTPMessageCopyRequestURL(_incomingMessage)) path];
-            path = [[_documentRoot path] stringByAppendingPathComponent: path];
-            NSArray * ranges = [self parseRangeRequest: rangeHeader withContentLength: [[[NSFileManager defaultManager] attributesOfItemAtPath: path error: NULL] fileSize]];
-            if ( [ranges count] != 0 )
+            [op setCompletionBlock: ^{ [self _maybeInstallIdleTimer]; }];
+            if ( [_idleDisconnectionTimer isValid] )
             {
-                AQHTTPRangedRequestOperation * rop = [[AQHTTPRangedRequestOperation alloc] initWithRequest: _incomingMessage socket: _socket documentRoot: _documentRoot ranges: ranges];
-                rop.connection = self;
-                op = rop;
-            }
-        }
-        
-        if ( op == nil )
-        {
-            // the best thing about this approach? It works with pipelining! (well, kinda)
-            AQHTTPRequestOperation * rop = [[AQHTTPRequestOperation alloc] initWithRequest: _incomingMessage socket: _socket documentRoot: _documentRoot];
-            rop.connection = self;
-            op = rop;
-        }
-        
-        [_requestQ addOperation: op];
+                [_idleDisconnectionTimer invalidate];
 #if USING_MRR
-        [op release];
+                [_idleDisconnectionTimer release];
 #endif
-        
-        CFRelease(_incomingMessage);
-        _incomingMessage = NULL;
+                _idleDisconnectionTimer = nil;
+            }
+            
+            [_requestQ addOperation: op];
+        }
     }
+    else
+    {
+        _incomingMessage = (CFHTTPMessageRef)CFRetain(msg);
+    }
+    
+    if (msg != NULL)
+        CFRelease(msg);
 }
 
 - (void) _socketDisconnected
 {
-    _socket = nil;
-    [self.delegate connectionDidClose: self];
+#if USING_MRR
+    AQSocket * tmp = [_socket retain];
+    [self close];
+    [tmp release];
+#else
+    [self close];
+#endif
 }
 
 - (void) _socketErrorOccurred: (NSError *) error
 {
+#if DEBUGLOG
     NSLog(@"Error occurred on socket: %@", error);
-    _socket = nil;
-    [self.delegate connectionDidClose: self];
+#endif
+#if USING_MRR
+    AQSocket * tmp = [_socket retain];
+    [self close];
+    [tmp release];
+#else
+    [self close];
+#endif
 }
 
 @end

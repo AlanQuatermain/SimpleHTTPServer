@@ -117,16 +117,30 @@ typedef void (^AQSocketEventHandler)(AQSocketEvent event, id info);
                     error: (NSError **) error;
 
 /**
+ Binds a listening (server-side) socket to the supplied socket address. This is a synchronous
+ operation.
+ @param saddr A socket address structure containing a local address to which to bind.
+ @param error If this method returns `NO`, then on return this value contains an
+ NSError object detailing the error.
+ @result `YES` if the listening socket is initialized successfully, `NO` if it failed.
+ */
+- (BOOL) listenOnAddress: (struct sockaddr *) saddr
+                   error: (NSError **) error;
+
+/**
  This method allows the creation of a listening socket, which will accept()
  incoming connection requests on either the loopback interface or the appropriate
  IPv4/IPV6 'any' address. It will choose its own port, which can be obtained using
  the `port` property.
  @param useLoopback If `YES`, bind to the loopback interface. Otherwise, use 'any'.
+ @param useIPv6 If `YES`, use the IPv6 protocol rather than IPv4.
  @param error If this method returns `NO`, then on return this value contains
  an NSError object detailing the error.
  @result `YES` if the connection could be bound, `NO` otherwise.
  */
-- (BOOL) listenForConnections: (BOOL) useLoopback error: (NSError **) error;
+- (BOOL) listenForConnections: (BOOL) useLoopback
+                      useIPv6: (BOOL) useIPv6
+                        error: (NSError **) error;
 
 /**
  This is a wrapper around connectToAddress:error: which allows
@@ -175,6 +189,23 @@ typedef void (^AQSocketEventHandler)(AQSocketEvent event, id info);
         The socket has disconnected and is no longer usable.
  */
 @property (nonatomic, readonly) AQSocketStatus status;
+
+/**
+ Returns the socket address of the receiver.
+ */
+@property (nonatomic, readonly) struct sockaddr_storage socketAddress;
+
+/**
+ Returns the socket address of the connected peer (if any).
+ 
+ Returns a zero'd structure if no peer is connected.
+ */
+@property (nonatomic, readonly) struct sockaddr_storage peerSocketAddress;
+
+/**
+ Returns the port being used by the socket.
+ */
+@property (nonatomic, readonly) uint16_t port;
 
 /** @name Data Transmission */
 

@@ -10,6 +10,8 @@
 #import "AQSocketReader+PrivateInternal.h"
 #import "AQSocket.h"
 #import <sys/ioctl.h>
+#import <fcntl.h>
+#import <libkern/OSAtomic.h>
 
 @implementation _AQDispatchData
 
@@ -58,7 +60,16 @@
 @interface AQSocketDispatchIOChannel : AQSocketIOChannel
 @end
 
-@interface AQSocketLegacyIOChannel : AQSocketIOChannel
+@interface AQSocketDispatchSourceIOChannel : AQSocketIOChannel
+{
+    dispatch_source_t _readerSource;
+}
+@end
+
+@interface AQSocketLegacyIOChannel : AQSocketDispatchSourceIOChannel
+@end
+
+@interface AQSocketSynchronousIOChannel : AQSocketDispatchSourceIOChannel
 @end
 
 @implementation AQSocketIOChannel
@@ -69,8 +80,10 @@
 {
     if ( [self class] == [AQSocketIOChannel class] )
     {
+        /*
         if ( dispatch_io_read != NULL )
             return ( [AQSocketDispatchIOChannel allocWithZone: zone] );
+         */
         
         return ( [AQSocketLegacyIOChannel allocWithZone: zone] );
     }
@@ -139,6 +152,9 @@
 
 - (void) close
 {
+#if DEBUGLOG
+    NSLog(@"IO channel %@ closing down.", self);
+#endif
     if ( _io != NULL )
     {
         // swap out our _io variable so we don't get an invalid access should the cleanup handler called by dispatch_io_close() also call into here
@@ -220,22 +236,26 @@
     // passed an immutable NSData, the copy is actually only a retain.
     // We convert it to a CFDataRef in order to get manual reference counting
     // semantics in order to keep the data object alive until the dispatch_data_t
-    // in which we're using it is itself released.
-    NSData * copiedData = [data copy];
-    CFDataRef staticData = CFBridgingRetain(copiedData);
+    // in which we're using it is itself released. This is necessary because when using
+    // ARC we can't call -release, so there would be no reference to the ObjC object
+    // within the cleanup block, thus nothing keeping it retained...
+    CFDataRef staticData = CFDataCreateCopy(kCFAllocatorDefault, (__bridge CFDataRef)data);
     
     dispatch_data_t ddata = dispatch_data_create(CFDataGetBytePtr(staticData), CFDataGetLength(staticData), dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         // When the dispatch data object is deallocated, release our CFData ref.
         CFRelease(staticData);
     });
     
-#if USING_MRR
-    // In manual retain/release mode, the call to [data copy] returns +1, and the CFBridgingRetain() returns +1. The block above
-    // releases the reference from CFBridgingRetain(), so we need to perform another release to match the [data copy] call.
-    [copiedData release];
+#if DEBUGLOG
+    static volatile int32_t __tag = 0;
+    int32_t tag = OSAtomicIncrement32Barrier(&__tag);
+    NSLog(@"Dispatch channel enqueueing send of %lu bytes of data; tag = %d", (unsigned long)[data length], tag);
 #endif
     
     dispatch_io_write(_io, 0, ddata, _q, ^(_Bool done, dispatch_data_t data, int error) {
+#if DEBUGLOG
+        NSLog(@"dispatch_io_write() callback for tag %d: done=%d, data=%lu bytes, error=%d (%s)", tag, done, (data == NULL ? 0 : dispatch_data_get_size(data)), error, strerror(error));
+#endif
         if ( completionCopy == nil )
             return;     // no point going further, really
         
@@ -282,10 +302,7 @@
 
 #pragma mark -
 
-@implementation AQSocketLegacyIOChannel
-{
-    dispatch_source_t _readerSource;
-}
+@implementation AQSocketDispatchSourceIOChannel
 
 - (id) initWithNativeSocket: (CFSocketNativeHandle) nativeSocket cleanupHandler: (void (^)(void)) cleanupHandler
 {
@@ -293,7 +310,7 @@
     if ( self == nil )
         return ( nil );
     
-    _readerSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, _nativeSocket, 0, _q);
+    _readerSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, _nativeSocket, 0, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0));
     // leave it suspended until we get a read handler installed
     
     return ( self );
@@ -316,7 +333,7 @@
 
 - (void) close
 {
-    if ( _readHandler != NULL )
+    if ( _readerSource != NULL )
     {
         // this runs the cleanup handler, if any
         dispatch_source_cancel(_readerSource);
@@ -326,6 +343,12 @@
         _readerSource = NULL;
     }
 }
+
+@end
+
+#pragma mark -
+
+@implementation AQSocketLegacyIOChannel
 
 - (void) setReadHandler: (void (^)(NSData *, NSError *)) readHandler
 {
@@ -348,48 +371,60 @@
     
     dispatch_source_set_event_handler(_readerSource, ^{
         // read as much data as possible
-        int flags = fcntl(_nativeSocket, F_GETFL, 0);
-        BOOL isNonBlocking = ((flags & O_NONBLOCK) == O_NONBLOCK);
-        if ( !isNonBlocking )
-        {
-            // make it use nonblocking IO so we can receive zero-length data
-            flags |= O_NONBLOCK;
-            fcntl(_nativeSocket, F_SETFL, flags);
-        }
-        
-        NSMutableData * data = [NSMutableData new];
-        NSError * error = nil;
-        
-#define READ_BUFLEN 1024*8
-        uint8_t buf[READ_BUFLEN];
-        ssize_t nread = 0;
-        while ( (nread = recv(_nativeSocket, buf, READ_BUFLEN, 0)) > 0 )
-        {
-            [data appendBytes:buf length:nread];
-        }
-        
-        if ( nread < 0 )
-        {
-            // don't send errors for EAGAIN-- we just finished reading data is all, it's not an error that needs handling further up the chain
-            int err = errno;
-            if ( err != EAGAIN )
-                error = [[NSError alloc] initWithDomain: NSPOSIXErrorDomain code: err userInfo: nil];
-        }
-        
-        _readHandler(data, error);
-        
-#if USING_MRR
-        [data release];
-        [error release];
+#if DEBUGLOG
+        NSLog(@"Data readable on channel %@", self);
 #endif
-        
-        // reset to blocking mode if appropriate
-        if ( !isNonBlocking )
-        {
-            flags &= ~O_NONBLOCK;
-            fcntl(_nativeSocket, F_SETFL, flags);
-        }
+        dispatch_sync(_q, ^{
+            int flags = fcntl(_nativeSocket, F_GETFL, 0);
+            BOOL isNonBlocking = ((flags & O_NONBLOCK) == O_NONBLOCK);
+            if ( !isNonBlocking )
+            {
+                // make it use nonblocking IO so we can receive zero-length data
+                flags |= O_NONBLOCK;
+                fcntl(_nativeSocket, F_SETFL, flags);
+            }
+            
+            NSMutableData * data = [NSMutableData new];
+            NSError * error = nil;
+            
+#define READ_BUFLEN 1024*8
+            uint8_t buf[READ_BUFLEN];
+            ssize_t nread = 0;
+            while ( (nread = recv(_nativeSocket, buf, READ_BUFLEN, 0)) > 0 )
+            {
+                [data appendBytes:buf length:nread];
+            }
+            
+            if ( nread < 0 )
+            {
+                // don't send errors for EAGAIN-- we just finished reading data is all, it's not an error that needs handling further up the chain
+                int err = errno;
+                if ( err != EAGAIN )
+                    error = [[NSError alloc] initWithDomain: NSPOSIXErrorDomain code: err userInfo: nil];
+            }
+            
+            _readHandler(data, error);
+            
+#if USING_MRR
+            [data release];
+            [error release];
+#endif
+            
+            // reset to blocking mode if appropriate
+            if ( !isNonBlocking )
+            {
+                flags &= ~O_NONBLOCK;
+                fcntl(_nativeSocket, F_SETFL, flags);
+            }
+        });
     });
+    
+#if DEBUGLOG
+    // see if there's data here already
+    int numReadable = 0;
+    ioctl(_nativeSocket, FIONREAD, &numReadable);
+    NSLog(@"New IO channel set up: %d bytes ready to read prior to dispatch_source resumption.", numReadable);
+#endif
     
     dispatch_resume(_readerSource);
 }
@@ -400,7 +435,13 @@
     void (^completionCopy)(NSData *, NSError *) = [completion copy];
     
     // Run the write operation in the background. We use our serial queue to avoid spawning 1001 threads blocking on select().
+#if DEBUGLOG
+    NSLog(@"Dispatching write of %lu bytes to IO channel queue", (unsigned long)[data length]);
+#endif
     dispatch_async(_q, ^{
+#if DEBUGLOG
+        NSLog(@"Starting write of %lu bytes on IO channel queue", (unsigned long)[data length]);
+#endif
         ssize_t totalSent = 0;
         const uint8_t *p = [data bytes];
         size_t len = [data length];
@@ -477,6 +518,162 @@
     // This has been captured by the block now, so we can release it.
     [completionCopy release];
 #endif
+}
+
+@end
+
+#pragma mark -
+
+@implementation AQSocketSynchronousIOChannel
+
+- (void) setReadHandler: (void (^)(NSData *, NSError *)) readHandler
+{
+    // Always suspend the reader source before swapping out an existing handler.
+    // This also has the effect of mirroring the dispatch_resume() call after installing the event/cancel handlers.
+    if ( _readHandler != nil )
+        dispatch_suspend(_readerSource);
+    
+    [super setReadHandler: readHandler];
+    if ( _readHandler == nil )
+        return;
+    
+    if ( _readerSource == NULL )
+        return;
+    
+    dispatch_source_set_cancel_handler(_readerSource, ^{
+        if ( _cleanupHandler != nil )
+            _cleanupHandler();
+    });
+    
+    dispatch_source_set_event_handler(_readerSource, ^{
+        // read as much data as possible
+#if DEBUGLOG
+        NSLog(@"Data readable on channel %@", self);
+#endif
+        int flags = fcntl(_nativeSocket, F_GETFL, 0);
+        BOOL isNonBlocking = ((flags & O_NONBLOCK) == O_NONBLOCK);
+        if ( !isNonBlocking )
+        {
+            // make it use nonblocking IO so we can receive zero-length data
+            flags |= O_NONBLOCK;
+            fcntl(_nativeSocket, F_SETFL, flags);
+        }
+        
+        NSMutableData * data = [NSMutableData new];
+        NSError * error = nil;
+        
+#define READ_BUFLEN 1024*8
+        uint8_t buf[READ_BUFLEN];
+        ssize_t nread = 0;
+        while ( (nread = recv(_nativeSocket, buf, READ_BUFLEN, 0)) > 0 )
+        {
+            [data appendBytes:buf length:nread];
+        }
+        
+        if ( nread < 0 )
+        {
+            // don't send errors for EAGAIN-- we just finished reading data is all, it's not an error that needs handling further up the chain
+            int err = errno;
+            if ( err != EAGAIN )
+                error = [[NSError alloc] initWithDomain: NSPOSIXErrorDomain code: err userInfo: nil];
+        }
+        
+        _readHandler(data, error);
+        
+#if USING_MRR
+        [data release];
+        [error release];
+#endif
+        
+        // reset to blocking mode if appropriate
+        if ( !isNonBlocking )
+        {
+            flags &= ~O_NONBLOCK;
+            fcntl(_nativeSocket, F_SETFL, flags);
+        }
+    });
+    
+#if DEBUGLOG
+    // see if there's data here already
+    int numReadable = 0;
+    ioctl(_nativeSocket, FIONREAD, &numReadable);
+    NSLog(@"New IO channel set up: %d bytes ready to read prior to dispatch_source resumption.", numReadable);
+#endif
+    
+    dispatch_resume(_readerSource);
+}
+
+- (void) writeData: (NSData *) data withCompletion: (void (^)(NSData *, NSError *)) completion
+{
+    // Run the write operation in the background. We use our serial queue to avoid spawning 1001 threads blocking on select().
+#if DEBUGLOG
+    NSLog(@"Dispatching write of %lu bytes to IO channel queue", (unsigned long)[data length]);
+#endif
+#if DEBUGLOG
+    NSLog(@"Starting write of %lu bytes on IO channel queue", (unsigned long)[data length]);
+#endif
+    ssize_t totalSent = 0;
+    const uint8_t *p = [data bytes];
+    size_t len = [data length];
+    
+    while (totalSent < [data length])
+    {
+        ssize_t numSent = send(_nativeSocket, p, len, 0);
+        int err = errno;
+        if ( numSent < 0 && err != EAGAIN )
+        {
+            NSError * error = [NSError errorWithDomain: NSPOSIXErrorDomain code: errno userInfo: nil];
+                completion([data subdataWithRange: NSMakeRange(totalSent, len)], error);
+            break;
+        }
+        else
+        {
+            if ( numSent >= 0 )
+            {
+                totalSent += numSent;
+                len -= numSent;
+            }
+            
+            if ( totalSent == [data length] )
+            {
+                // all done, no errors
+                completion(nil, nil);
+            }
+            else        // sent partial data-- block until we receive more
+            {
+                fd_set wfds, efds;
+                FD_ZERO(&wfds);
+                FD_ZERO(&efds);
+                FD_SET(_nativeSocket, &wfds);
+                FD_SET(_nativeSocket, &efds);
+                
+                if ( select(_nativeSocket+1, NULL, &wfds, &efds, NULL) < 0 )
+                {
+                    // an error occurred.
+                    NSError * error = [NSError errorWithDomain: NSPOSIXErrorDomain code: errno userInfo: nil];
+                    completion([data subdataWithRange: NSMakeRange(totalSent, len)], error);
+                    
+                    break;
+                }
+                
+                if ( FD_ISSET(_nativeSocket, &wfds) )
+                    continue;       // room available to write, so let's use it
+                
+                if ( FD_ISSET(_nativeSocket, &efds) )
+                {
+                    // an error occurred.
+                    int sockerr = 0;
+                    socklen_t slen = sizeof(int);
+                    getsockopt(_nativeSocket, SOL_SOCKET, SO_ERROR, &sockerr, &slen);
+                    
+                    NSError * error = [NSError errorWithDomain: NSPOSIXErrorDomain code: sockerr userInfo: nil];
+                    completion([data subdataWithRange: NSMakeRange(totalSent, len)], error);
+                    
+                    break;
+                }
+            }
+        }
+    }
 }
 
 @end

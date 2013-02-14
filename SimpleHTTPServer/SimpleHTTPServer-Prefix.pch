@@ -17,12 +17,15 @@
 
 #if __has_feature(objc_arc) && defined(__IPHONE_OS_VERSION_MIN_REQUIRED) && __IPHONE_OS_VERSION_MIN_REQUIRED >= __IPHONE_5_0
 # define __maybe_weak __weak
+# define __block_weak __weak
 # define property_weak weak
 #elif __has_feature(objc_arc) && defined(MAC_OS_X_VERSION_MIN_REQUIRED) && MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_7
 # define __maybe_weak __weak
+# define __block_weak __weak
 # define property_weak weak
 #else
 # define __maybe_weak __unsafe_unretained
+# define __block_weak __block
 # define property_weak assign
 #endif
 

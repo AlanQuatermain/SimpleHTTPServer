@@ -14,7 +14,6 @@
 		3813A920154893D4000CFF34 /* AQHTTPConnection.m in Sources */ = {isa = PBXBuildFile; fileRef = 3813A91F154893D4000CFF34 /* AQHTTPConnection.m */; };
 		3813A92815489A60000CFF34 /* AQHTTPRequestOperation.m in Sources */ = {isa = PBXBuildFile; fileRef = 3813A92715489A60000CFF34 /* AQHTTPRequestOperation.m */; };
 		3813A92F1548ADC6000CFF34 /* CoreServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3813A92E1548ADC6000CFF34 /* CoreServices.framework */; };
-		3813A9351549C63A000CFF34 /* AQHTTPRangedRequestOperation.m in Sources */ = {isa = PBXBuildFile; fileRef = 3813A9341549C639000CFF34 /* AQHTTPRangedRequestOperation.m */; };
 		3813A93C1549D095000CFF34 /* NSDateFormatter+AQHTTPDateFormatter.m in Sources */ = {isa = PBXBuildFile; fileRef = 3813A93B1549D095000CFF34 /* NSDateFormatter+AQHTTPDateFormatter.m */; };
 		3813A9441549DBF8000CFF34 /* DDData.m in Sources */ = {isa = PBXBuildFile; fileRef = 3813A93F1549DBF8000CFF34 /* DDData.m */; };
 		3813A9451549DBF8000CFF34 /* DDNumber.m in Sources */ = {isa = PBXBuildFile; fileRef = 3813A9411549DBF8000CFF34 /* DDNumber.m */; };
@@ -22,6 +21,8 @@
 		38634F2515472ADD007DA652 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 38634F2415472ADD007DA652 /* Foundation.framework */; };
 		38634F2815472ADD007DA652 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 38634F2715472ADD007DA652 /* main.m */; };
 		38634F2C15472ADD007DA652 /* SimpleHTTPServer.1 in CopyFiles */ = {isa = PBXBuildFile; fileRef = 38634F2B15472ADD007DA652 /* SimpleHTTPServer.1 */; };
+		ABA88FF316CC558000F2014B /* AQHTTPFileResponseOperation.m in Sources */ = {isa = PBXBuildFile; fileRef = ABA88FF016CC558000F2014B /* AQHTTPFileResponseOperation.m */; };
+		ABA88FF416CC558000F2014B /* AQHTTPResponseOperation.m in Sources */ = {isa = PBXBuildFile; fileRef = ABA88FF216CC558000F2014B /* AQHTTPResponseOperation.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -52,8 +53,6 @@
 		3813A92615489A60000CFF34 /* AQHTTPRequestOperation.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AQHTTPRequestOperation.h; sourceTree = "<group>"; };
 		3813A92715489A60000CFF34 /* AQHTTPRequestOperation.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = AQHTTPRequestOperation.m; sourceTree = "<group>"; };
 		3813A92E1548ADC6000CFF34 /* CoreServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreServices.framework; path = System/Library/Frameworks/CoreServices.framework; sourceTree = SDKROOT; };
-		3813A9331549C639000CFF34 /* AQHTTPRangedRequestOperation.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AQHTTPRangedRequestOperation.h; sourceTree = "<group>"; };
-		3813A9341549C639000CFF34 /* AQHTTPRangedRequestOperation.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = AQHTTPRangedRequestOperation.m; sourceTree = "<group>"; };
 		3813A93A1549D095000CFF34 /* NSDateFormatter+AQHTTPDateFormatter.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "NSDateFormatter+AQHTTPDateFormatter.h"; sourceTree = "<group>"; };
 		3813A93B1549D095000CFF34 /* NSDateFormatter+AQHTTPDateFormatter.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = "NSDateFormatter+AQHTTPDateFormatter.m"; sourceTree = "<group>"; };
 		3813A93E1549DBF8000CFF34 /* DDData.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = DDData.h; sourceTree = "<group>"; };
@@ -67,6 +66,11 @@
 		38634F2715472ADD007DA652 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
 		38634F2A15472ADD007DA652 /* SimpleHTTPServer-Prefix.pch */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "SimpleHTTPServer-Prefix.pch"; sourceTree = "<group>"; };
 		38634F2B15472ADD007DA652 /* SimpleHTTPServer.1 */ = {isa = PBXFileReference; lastKnownFileType = text.man; path = SimpleHTTPServer.1; sourceTree = "<group>"; };
+		ABA88FEE16CC558000F2014B /* AQHTTPConnection_PrivateInternal.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AQHTTPConnection_PrivateInternal.h; sourceTree = "<group>"; };
+		ABA88FEF16CC558000F2014B /* AQHTTPFileResponseOperation.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AQHTTPFileResponseOperation.h; sourceTree = "<group>"; };
+		ABA88FF016CC558000F2014B /* AQHTTPFileResponseOperation.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = AQHTTPFileResponseOperation.m; sourceTree = "<group>"; };
+		ABA88FF116CC558000F2014B /* AQHTTPResponseOperation.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AQHTTPResponseOperation.h; sourceTree = "<group>"; };
+		ABA88FF216CC558000F2014B /* AQHTTPResponseOperation.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = AQHTTPResponseOperation.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -129,14 +133,17 @@
 				38634F2715472ADD007DA652 /* main.m */,
 				3813A917154891EA000CFF34 /* AQHTTPServer.h */,
 				3813A918154891EA000CFF34 /* AQHTTPServer.m */,
+				ABA88FEE16CC558000F2014B /* AQHTTPConnection_PrivateInternal.h */,
 				3813A91E154893D4000CFF34 /* AQHTTPConnection.h */,
 				3813A91F154893D4000CFF34 /* AQHTTPConnection.m */,
 				3813A93A1549D095000CFF34 /* NSDateFormatter+AQHTTPDateFormatter.h */,
 				3813A93B1549D095000CFF34 /* NSDateFormatter+AQHTTPDateFormatter.m */,
 				3813A92615489A60000CFF34 /* AQHTTPRequestOperation.h */,
 				3813A92715489A60000CFF34 /* AQHTTPRequestOperation.m */,
-				3813A9331549C639000CFF34 /* AQHTTPRangedRequestOperation.h */,
-				3813A9341549C639000CFF34 /* AQHTTPRangedRequestOperation.m */,
+				ABA88FEF16CC558000F2014B /* AQHTTPFileResponseOperation.h */,
+				ABA88FF016CC558000F2014B /* AQHTTPFileResponseOperation.m */,
+				ABA88FF116CC558000F2014B /* AQHTTPResponseOperation.h */,
+				ABA88FF216CC558000F2014B /* AQHTTPResponseOperation.m */,
 				3813A93E1549DBF8000CFF34 /* DDData.h */,
 				3813A93F1549DBF8000CFF34 /* DDData.m */,
 				3813A9401549DBF8000CFF34 /* DDNumber.h */,
@@ -216,11 +223,12 @@
 				3813A919154891EA000CFF34 /* AQHTTPServer.m in Sources */,
 				3813A920154893D4000CFF34 /* AQHTTPConnection.m in Sources */,
 				3813A92815489A60000CFF34 /* AQHTTPRequestOperation.m in Sources */,
-				3813A9351549C63A000CFF34 /* AQHTTPRangedRequestOperation.m in Sources */,
 				3813A93C1549D095000CFF34 /* NSDateFormatter+AQHTTPDateFormatter.m in Sources */,
 				3813A9441549DBF8000CFF34 /* DDData.m in Sources */,
 				3813A9451549DBF8000CFF34 /* DDNumber.m in Sources */,
 				3813A9461549DBF8000CFF34 /* DDRange.m in Sources */,
+				ABA88FF316CC558000F2014B /* AQHTTPFileResponseOperation.m in Sources */,
+				ABA88FF416CC558000F2014B /* AQHTTPResponseOperation.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

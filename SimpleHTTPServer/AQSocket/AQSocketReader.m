@@ -47,6 +47,31 @@
         }                                                           \
     } while (0)
 
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE == 1
+static BOOL OSVersionAtLeast(int major, int minor)
+{
+    static int _maj = 0, _minor = 0;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        NSString *systemVersion		= [UIDevice currentDevice].systemVersion;
+		
+		NSArray *versionComponents	= [systemVersion componentsSeparatedByString: @"."];
+		
+		if ( [versionComponents count] > 0 )
+			osMajor = [[versionComponents objectAtIndex:0] intValue];
+		
+		if ( [versionComponents count] > 1 )
+			osMinor = [[versionComponents objectAtIndex:1] intValue];
+		
+		if ( [versionComponents count] > 2 )
+			osBuild = [[versionComponents objectAtIndex:2] intValue];
+		
+		if ( [versionComponents count] > 3 )
+			osRevision = [[versionComponents objectAtIndex:3] intValue];
+    });
+}
+#endif
+
 @interface AQSocketDispatchDataReader : AQSocketReader
 @end
 
@@ -66,7 +91,13 @@
 
 + (id) allocWithZone: (NSZone *) zone
 {
-    if ( self == [AQSocketReader class] && dispatch_data_create != 0 )
+    if ( self == [AQSocketReader class] &&
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE == 1
+        OSVersionAtLeast(5, 0)
+#else
+        dispatch_data_get_size != 0
+#endif
+        )
     {
         return ( [AQSocketDispatchDataReader allocWithZone: zone] );
     }
@@ -236,6 +267,9 @@
 {
     __block size_t copied = 0;
     
+    if ( _data == NULL )
+        return ( 0 );
+    
     // iterate the regions in our data object until we've read `count` bytes
     dispatch_data_apply(_data, ^bool(dispatch_data_t region, size_t off, const void * buf, size_t size) {
         if ( off + self.offset > length )
@@ -388,7 +422,7 @@
     
     // Ensure we have an immutable data object. If it's already immutable, this -copy just does -retain.
     NSData * dataCopy = [data copy];
-    dispatch_data_t ddata = dispatch_data_create([dataCopy bytes], [dataCopy length], dispatch_get_main_queue(), ^{
+    dispatch_data_t ddata = dispatch_data_create([dataCopy bytes], [dataCopy length], dispatch_get_global_queue(0,0), ^{
 #if USING_MRR
         [dataCopy release];
 #endif

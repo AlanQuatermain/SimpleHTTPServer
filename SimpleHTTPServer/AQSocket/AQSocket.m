@@ -37,6 +37,7 @@
 #import "AQSocketReader.h"
 #import "AQSocketReader+PrivateInternal.h"
 #import "AQSocketIOChannel.h"
+#import <libkern/OSAtomic.h>
 #import <sys/socket.h>
 #import <netinet/in.h>
 #import <arpa/inet.h>
@@ -45,10 +46,31 @@
 
 // See -connectToAddress:port:error: for discussion.
 #if TARGET_OS_IPHONE
-#import <UIKit/UIApplication.h>
+# import <UIKit/UIApplication.h>
 #else
-#import <AppKit/NSApplication.h>
+# import <dlfcn.h>
 #endif
+
+static NSString * __EventTrackingRunLoopMode()
+{
+    static NSString * __str = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+#if TARGET_OS_IPHONE
+        __str = UITrackingRunLoopMode;
+#else
+        void * addr = dlsym(RTLD_DEFAULT, "NSEventTrackingRunLoopMode");
+        if ( addr != NULL )
+        {
+            __str = (__bridge NSString*)addr;
+        }
+#endif
+    });
+    
+    return ( __str );
+}
+
+#define LISTEN_WITH_CFSOCKET 0
 
 @interface AQSocket (CFSocketConnectionCallback)
 - (void) connectedSuccessfully;
@@ -61,23 +83,35 @@
 
 static void _CFSocketConnectionCallBack(CFSocketRef s, CFSocketCallBackType type, CFDataRef address, const void *data, void *info)
 {
-    if ( type != kCFSocketConnectCallBack )
-        return;
-    
-    AQSocket * aqsock = (__bridge AQSocket *)info;
-    if ( data == NULL )
-        [aqsock connectedSuccessfully];
-    else
-        [aqsock connectionFailedWithError: *((SInt32 *)data)];
+    @autoreleasepool
+    {
+#if DEBUGLOG
+        NSLog(@"CFSocketConnectionCallBack(%lu, %@)", type, info);
+#endif
+        if ( type != kCFSocketConnectCallBack )
+            return;
+        
+        AQSocket * aqsock = (__bridge AQSocket *)info;
+        if ( data == NULL )
+            [aqsock connectedSuccessfully];
+        else
+            [aqsock connectionFailedWithError: *((SInt32 *)data)];
+    }
 }
 
 static void _CFSocketAcceptCallBack(CFSocketRef s, CFSocketCallBackType type, CFDataRef address, const void *data, void *info)
 {
-    if ( type != kCFSocketAcceptCallBack )
-        return;
-    
-    AQSocket * aqsock = (__bridge AQSocket *)info;
-    [aqsock acceptNewConnection: *((CFSocketNativeHandle *)data)];
+    @autoreleasepool
+    {
+#if DEBUGLOG
+        NSLog(@"CFSocketAcceptCallBack(%lu, %@)", type, info);
+#endif
+        if ( type != kCFSocketAcceptCallBack )
+            return;
+        
+        AQSocket * aqsock = (__bridge AQSocket *)info;
+        [aqsock acceptNewConnection: *((CFSocketNativeHandle *)data)];
+    }
 }
 
 static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 port, struct sockaddr_storage * outAddr, NSError * __autoreleasing* outError)
@@ -110,7 +144,9 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
     int err = getaddrinfo([addrStr UTF8String], NULL, &hints, &pLookup);
     if ( err != 0 )
     {
+#if DEBUGLOG
         NSLog(@"Error from getaddrinfo() for address %@: %s", addrStr, gai_strerror(err));
+#endif
         if ( outError != NULL )
         {
             NSDictionary * userInfo = [[NSDictionary alloc] initWithObjectsAndKeys: [NSString stringWithUTF8String: gai_strerror(err)], NSLocalizedDescriptionKey, nil];
@@ -151,15 +187,77 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
 
 #pragma mark -
 
+@interface AQSocketCFHandlerThread : NSThread
+{
+    CFRunLoopRef _threadRunLoop;
+}
+@property (nonatomic, readonly) CFRunLoopRef runLoop;
+@end
+
+static AQSocketCFHandlerThread *__socketCFHandlerThread = nil;
+
+@implementation AQSocketCFHandlerThread
+
+@synthesize runLoop=_threadRunLoop;
+
+static void _AQSocketCFRunLoopTimerHandler(CFRunLoopTimerRef timer, void *info)
+{
+    // does nothing
+}
+
+- (void) main
+{
+    _threadRunLoop = CFRunLoopGetCurrent();
+    
+    // keep it alive for at least a few seconds by attaching a timer
+    CFRunLoopTimerRef timer = CFRunLoopTimerCreate(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent()+10.0, 0.0, 0, 0, _AQSocketCFRunLoopTimerHandler, NULL);
+    CFRunLoopAddTimer(_threadRunLoop, timer, kCFRunLoopDefaultMode);
+    CFRelease(timer);
+    
+    @autoreleasepool {
+        CFRunLoopRun();
+    }
+    
+    // nilify the global variable when we exit
+    OSAtomicCompareAndSwapPtrBarrier((__bridge void*)self, nil, (void *)&__socketCFHandlerThread);
+}
+
+@end
+
+static CFRunLoopRef AQSocketCFHandlerRunLoop(void)
+{
+    if ( __socketCFHandlerThread == nil )
+    {
+        __socketCFHandlerThread = [[AQSocketCFHandlerThread alloc] init];
+        [__socketCFHandlerThread setName: @"AQSocketCFHandlerThread"];
+        [__socketCFHandlerThread start];
+        
+        @autoreleasepool
+        {
+            while ( __socketCFHandlerThread.runLoop == NULL )
+            {
+                [[NSRunLoop currentRunLoop] runMode: NSDefaultRunLoopMode beforeDate: [NSDate dateWithTimeIntervalSinceNow: 0.05]];
+            }
+        }
+    }
+    
+    return ( __socketCFHandlerThread.runLoop );
+}
+
+#pragma mark -
+
 @implementation AQSocket
 {
-    int                 _socketType;
-    int                 _socketProtocol;
-    AQSocketStatus      _status;
-    CFSocketRef         _socketRef;
-    CFRunLoopSourceRef  _socketRunloopSource;
-    AQSocketIOChannel * _socketIO;
-    AQSocketReader *    _socketReader;
+    int                     _socketType;
+    int                     _socketProtocol;
+    AQSocketStatus          _status;
+    CFSocketRef             _socketRef;
+    dispatch_source_t       _listenSource;
+    CFSocketNativeHandle    _rawSocket;
+    CFRunLoopSourceRef      _socketRunloopSource;
+    dispatch_semaphore_t    _sync;
+    AQSocketIOChannel *     _socketIO;
+    AQSocketReader *        _socketReader;
 }
 
 @synthesize eventHandler, status=_status;
@@ -175,6 +273,9 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
     _socketProtocol = (type == SOCK_STREAM ? IPPROTO_TCP : IPPROTO_UDP);
     
     _status = AQSocketUnconnected;
+    
+    // gets created with zero resources available. Will be signalled when socket becomes available for use.
+    _sync = dispatch_semaphore_create(0);
     
     return ( self );
 }
@@ -198,8 +299,9 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
     int nosigpipe = 1;
 	setsockopt(nativeSocket, SOL_SOCKET, SO_NOSIGPIPE, &nosigpipe, sizeof(nosigpipe));
     
-    CFSocketContext ctx = { 0, (__bridge void *)self, NULL, NULL, CFCopyDescription };
-    _socketRef = CFSocketCreateWithNative(kCFAllocatorDefault, nativeSocket, 0, NULL, &ctx);
+    //CFSocketContext ctx = { 0, (__bridge void *)self, NULL, NULL, CFCopyDescription };
+    //_socketRef = CFSocketCreateWithNative(kCFAllocatorDefault, nativeSocket, 0, NULL, &ctx);
+    _rawSocket = nativeSocket;
     [self connectedSuccessfully];       // setup the io channel for data notifications etc.
     
     return ( self );
@@ -219,27 +321,176 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
     if ( _socketRunloopSource != NULL )
     {
         // Ensure the source is no longer scheduled in any run loops.
-        CFRunLoopRemoveSource(CFRunLoopGetMain(), _socketRunloopSource, kCFRunLoopDefaultMode);
-#if 0
-        CFRunLoopRemoveSource(CFRunLoopGetMain(), _socketRunloopSource, (__bridge CFStringRef)
-#if TARGET_OS_IPHONE
-                              UITrackingRunLoopMode
-#else
-                              NSEventTrackingRunLoopMode
-#endif
-                              );
-#endif
-        
-        // Now we can safely release our reference to it.
-        CFRelease(_socketRunloopSource);
+        CFRunLoopRemoveSource(AQSocketCFHandlerRunLoop(), _socketRunloopSource, kCFRunLoopDefaultMode);
+        NSString * eventMode = __EventTrackingRunLoopMode();
+        if ( eventMode != nil )
+        {
+            CFRunLoopRemoveSource(AQSocketCFHandlerRunLoop(), _socketRunloopSource, (__bridge CFStringRef)eventMode);
+            
+            // Now we can safely release our reference to it.
+            CFRelease(_socketRunloopSource);
+        }
     }
+    
+    if ( _listenSource != NULL )
+        dispatch_source_cancel(_listenSource);
+    
+#if USING_MRR || DISPATCH_USES_ARC == 0
+    if ( _sync != NULL )
+    {
+        dispatch_release(_sync);
+        _sync = NULL;
+    }
+    if ( _listenSource != NULL )
+    {
+        dispatch_release(_listenSource);
+        _listenSource = NULL;
+    }
+#endif
 #if USING_MRR
     [_socketReader release];
     [super dealloc];
 #endif
 }
 
-- (BOOL) listenForConnections: (BOOL) useLoopback error: (NSError **) error
+- (BOOL) listenOnAddress: (struct sockaddr *) saddr
+                   error: (NSError **) error
+{
+#if LISTEN_WITH_CFSOCKET
+    // Create the socket with the appropriate socket family from the address
+    // structure.
+    CFSocketContext ctx = {
+        .version = 0,
+        .info = (__bridge void *)self,  // just a plain bridge cast
+        .retain = CFRetain,
+        .release = CFRelease,
+        .copyDescription = CFCopyDescription
+    };
+    
+    _socketRef = CFSocketCreate(kCFAllocatorDefault, saddr->sa_family, _socketType, _socketProtocol, kCFSocketAcceptCallBack, _CFSocketAcceptCallBack, &ctx);
+    if ( _socketRef == NULL )
+    {
+        // We failed to create the socket, so build an error (if appropriate)
+        // and return `NO`.
+        if ( error != NULL )
+        {
+            // This error code is -1004.
+            *error = [NSError errorWithDomain: NSURLErrorDomain code: NSURLErrorCannotConnectToHost userInfo: nil];
+        }
+        
+        return ( NO );
+    }
+    
+    // get the native socket
+    _rawSocket = CFSocketGetNative(_socketRef);
+    
+    // enable the appropriate callbacks
+    CFSocketSetSocketFlags(_socketRef, kCFSocketAutomaticallyReenableAcceptCallBack);
+    CFSocketEnableCallBacks(_socketRef, kCFSocketAcceptCallBack);
+    
+    // Create a runloop source for the socket reference and bind it to a
+    // runloop that's guaranteed to be running some time in the future: the main
+    // one.
+    _socketRunloopSource = CFSocketCreateRunLoopSource(kCFAllocatorDefault, _socketRef, 0);
+    CFRunLoopAddSource(AQSocketCFHandlerRunLoop(), _socketRunloopSource, kCFRunLoopCommonModes);
+    
+    // We also want to ensure that the connection callback fires during
+    // input event tracking. There are different constants for this on iOS and
+    // OS X, so I've used a compiler switch for that.
+    NSString * eventMode = __EventTrackingRunLoopMode();
+    if ( eventMode != nil )
+    {
+        CFRunLoopAddSource(AQSocketCFHandlerRunLoop(), _socketRunloopSource, (__bridge CFStringRef)eventMode);
+    }
+    
+    NSData * sockData = [[NSData alloc] initWithBytesNoCopy: saddr length: saddr->sa_len freeWhenDone: NO];
+    CFSocketError sockErr = CFSocketSetAddress(_socketRef, (__bridge CFDataRef)sockData);
+#if USING_MRR
+    [sockData release];
+#endif
+    if ( sockErr != kCFSocketSuccess )
+        return ( NO );
+#else
+    _rawSocket = socket(saddr->sa_family, _socketType, _socketProtocol);
+    if ( _rawSocket < 0 )
+    {
+        NSError * err = [NSError errorWithDomain: NSPOSIXErrorDomain code: errno userInfo: nil];
+        NSLog(@"Failed to create listening socket: %@", err);
+        if ( error != NULL )
+            *error = err;
+        return ( NO );
+    }
+    
+    int val = 1;
+    if ( setsockopt(_rawSocket, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val)) < 0 )
+    {
+#if DEBUGLOG
+        NSLog(@"Failed to set SO_REUSEADDR on listening socket: %d (%s)", errno, strerror(errno));
+#endif
+    }
+    if ( setsockopt(_rawSocket, SOL_SOCKET, SO_NOSIGPIPE, &val, sizeof(val)) < 0 )
+    {
+#if DEBUGLOG
+        NSLog(@"Failed to set SO_NOSIGPIPE on listening socket: %d (%s)", errno, strerror(errno));
+#endif
+    }
+    if ( bind(_rawSocket, saddr, saddr->sa_len) < 0 )
+    {
+        NSError * err = [NSError errorWithDomain: NSPOSIXErrorDomain code: errno userInfo: nil];
+        NSLog(@"Error binding listening socket: %@", err);
+        if ( error != NULL )
+            *error = err;
+        close(_rawSocket);
+        _rawSocket = -1;
+        return ( NO );
+    }
+    
+    listen(_rawSocket, 16);
+    _listenSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, _rawSocket, 0, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0));
+    dispatch_debug(_listenSource, "listen source creation");
+    
+    AQSocket * __maybe_weak weakSelf = self;
+    dispatch_source_set_event_handler(_listenSource, ^{
+        AQSocket * strongSelf = weakSelf;
+        int lfd = (int)dispatch_source_get_handle(_listenSource);
+        int clientSock = accept(lfd, NULL, NULL);
+        if ( clientSock < 0 )
+        {
+            NSError * err = [NSError errorWithDomain: NSPOSIXErrorDomain code: errno userInfo: nil];
+            NSLog(@"%@ failed to accept new connection: %@", strongSelf, err);
+            return;
+        }
+        
+        [strongSelf acceptNewConnection: clientSock];
+    });
+    
+    dispatch_resume(_listenSource);
+    dispatch_debug(_listenSource, "listen source resumption");
+#endif
+    
+    // Find out what port we were assigned.
+    struct sockaddr_storage myAddr = {0};
+    socklen_t slen = sizeof(struct sockaddr_storage);
+    getsockname(_rawSocket, (struct sockaddr *)&myAddr, &slen);
+    
+    char addrStr[INET6_ADDRSTRLEN];
+    struct sockaddr_in *pIn4 = (struct sockaddr_in *)&myAddr;
+    struct sockaddr_in6 *pIn6 = (struct sockaddr_in6 *)&myAddr;
+    inet_ntop(myAddr.ss_family, (myAddr.ss_family == AF_INET ? (void *)&pIn4->sin_addr : (void *)&pIn6->sin6_addr), addrStr, INET6_ADDRSTRLEN);
+    
+#if DEBUGLOG
+    NSLog(@"Listening on %s:%hu", addrStr, (in_port_t)(myAddr.ss_family == AF_INET ? ntohs(pIn4->sin_port) : ntohs(pIn6->sin6_port)));
+#endif
+    
+    // Record the change in status.
+    _status = AQSocketListening;
+    
+    return ( YES );
+}
+
+- (BOOL) listenForConnections: (BOOL) useLoopback
+                      useIPv6: (BOOL) useIPv6
+                        error: (NSError **) error
 {
     if ( _status != AQSocketUnconnected )
     {
@@ -268,82 +519,28 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
         return ( NO );
     }
     
-    struct sockaddr_in saddr = {0};
-    NSData * sockData = [[NSData alloc] initWithBytesNoCopy: &saddr length: sizeof(struct sockaddr_in) freeWhenDone: NO];
-    
-    // Create a local address to which we'll bind. Sticking with IPv4 for now.
-    struct sockaddr_in *pIn = &saddr;
-    pIn->sin_family = AF_INET;
-    pIn->sin_len = sizeof(struct sockaddr_in);
-    pIn->sin_port = 0;
-    pIn->sin_addr.s_addr = htonl((useLoopback ? INADDR_LOOPBACK : INADDR_ANY));
-    
-    // Create the socket with the appropriate socket family from the address
-    // structure.
-    CFSocketContext ctx = {
-        .version = 0,
-        .info = (__bridge void *)self,  // just a plain bridge cast
-        .retain = CFRetain,
-        .release = CFRelease,
-        .copyDescription = CFCopyDescription
-    };
-    
-    _socketRef = CFSocketCreate(kCFAllocatorDefault, saddr.sin_family, _socketType, _socketProtocol, kCFSocketAcceptCallBack, _CFSocketAcceptCallBack, &ctx);
-    if ( _socketRef == NULL )
+    // Create a local address to which we'll bind.
+    struct sockaddr_storage saddr = {0};
+    if ( useIPv6 )
     {
-        // We failed to create the socket, so build an error (if appropriate)
-        // and return `NO`.
-        if ( error != NULL )
-        {
-            // This error code is -1004.
-            *error = [NSError errorWithDomain: NSURLErrorDomain code: NSURLErrorCannotConnectToHost userInfo: nil];
-        }
+        saddr.ss_len = sizeof(struct sockaddr_in6);
+        saddr.ss_family = AF_INET6;
         
-#if USING_MRR
-        [sockData release];
-#endif
-        return ( NO );
+        struct sockaddr_in6 *pIn = (struct sockaddr_in6 *)&saddr;
+        pIn->sin6_port = 0;
+        pIn->sin6_addr = (useLoopback? in6addr_loopback : in6addr_any);
+    }
+    else
+    {
+        saddr.ss_len = sizeof(struct sockaddr_in);
+        saddr.ss_family = AF_INET;
+        
+        struct sockaddr_in *pIn = (struct sockaddr_in *)&saddr;
+        pIn->sin_port = 0;
+        pIn->sin_addr.s_addr = htonl((useLoopback ? INADDR_LOOPBACK : INADDR_ANY));
     }
     
-    // Create a runloop source for the socket reference and bind it to a
-    // runloop that's guaranteed to be running some time in the future: the main
-    // one.
-    _socketRunloopSource = CFSocketCreateRunLoopSource(kCFAllocatorDefault, _socketRef, 0);
-    CFRunLoopAddSource(CFRunLoopGetMain(), _socketRunloopSource, kCFRunLoopDefaultMode);
-    
-    // We also want to ensure that the connection callback fires during
-    // input event tracking. There are different constants for this on iOS and
-    // OS X, so I've used a compiler switch for that.
-#if 0
-    CFRunLoopAddSource(CFRunLoopGetMain(), _socketRunloopSource, (__bridge CFStringRef)
-#if TARGET_OS_IPHONE
-                       UITrackingRunLoopMode
-#else
-                       NSEventTrackingRunLoopMode
-#endif
-                       );
-#endif
-    CFSocketError sockErr = CFSocketSetAddress(_socketRef, (__bridge CFDataRef)sockData);
-#if USING_MRR
-    [sockData release];
-#endif
-    if ( sockErr != kCFSocketSuccess )
-        return ( NO );
-    
-    // Find out what port we were assigned.
-    struct sockaddr_in myAddr = {0};
-    socklen_t slen = sizeof(struct sockaddr_in);
-    getsockname(CFSocketGetNative(_socketRef), (struct sockaddr *)&myAddr, &slen);
-    
-    NSLog(@"Using port %hu", ntohs(myAddr.sin_port));
-    
-    CFSocketSetSocketFlags(_socketRef, kCFSocketAutomaticallyReenableAcceptCallBack);
-    CFSocketEnableCallBacks(_socketRef, kCFSocketAcceptCallBack);
-    
-    // Record the change in status.
-    _status = AQSocketListening;
-    
-    return ( YES );
+    return ( [self listenOnAddress: (struct sockaddr *)&saddr error: error] );
 }
 
 - (BOOL) connectToAddress: (struct sockaddr *) saddr
@@ -416,24 +613,23 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
         return ( NO );
     }
     
+    // get the native socket
+    _rawSocket = CFSocketGetNative(_socketRef);
+    
     // Create a runloop source for the socket reference and bind it to a
     // runloop that's guaranteed to be running some time in the future: the main
     // one.
     _socketRunloopSource = CFSocketCreateRunLoopSource(kCFAllocatorDefault, _socketRef, 0);
-    CFRunLoopAddSource(CFRunLoopGetMain(), _socketRunloopSource, kCFRunLoopDefaultMode);
+    CFRunLoopAddSource(AQSocketCFHandlerRunLoop(), _socketRunloopSource, kCFRunLoopDefaultMode);
     
     // We also want to ensure that the connection callback fires during
     // input event tracking. There are different constants for this on iOS and
     // OS X, so I've used a compiler switch for that.
-#if 0
-    CFRunLoopAddSource(CFRunLoopGetMain(), _socketRunloopSource, (__bridge CFStringRef)
-#if TARGET_OS_IPHONE
-                       UITrackingRunLoopMode
-#else
-                       NSEventTrackingRunLoopMode
-#endif
-                       );
-#endif
+    NSString * eventMode = __EventTrackingRunLoopMode();
+    if ( eventMode != nil )
+    {
+        CFRunLoopAddSource(AQSocketCFHandlerRunLoop(), _socketRunloopSource, (__bridge CFStringRef)eventMode);
+    }
     // Start the connection process.
     // Let's fire off the connection attempt and wait for the socket to become
     // readable, which means the connection succeeded. The timeout value of
@@ -451,7 +647,9 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
     
     if ( err != kCFSocketSuccess )
     {
+#if DEBUGLOG
         NSLog(@"Error connecting socket: %ld", err);
+#endif
         
         if ( error != NULL )
         {
@@ -460,7 +658,7 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
                 // Try to get hold of the underlying error from the raw socket.
                 int sockerr = 0;
                 socklen_t len = sizeof(sockerr);
-                if ( getsockopt(CFSocketGetNative(_socketRef), SOL_SOCKET, SO_ERROR, &sockerr, &len) == -1 )
+                if ( getsockopt(_rawSocket, SOL_SOCKET, SO_ERROR, &sockerr, &len) == -1 )
                 {
                     // Yes, this is cheating.
                     sockerr = errno;
@@ -525,6 +723,12 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
 
 - (void) close
 {
+    if ( _socketIO == nil )
+        return;
+    
+    // wait for any write-schedules to complete, and claim the resource.
+    dispatch_semaphore_wait(_sync, DISPATCH_TIME_FOREVER);
+    
     [_socketIO close];
 #if USING_MRR
     [_socketIO release];
@@ -533,17 +737,78 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
     
     if ( _socketRef != NULL )
     {
-        int sock = CFSocketGetNative(_socketRef);
         CFRelease(_socketRef);
         _socketRef = NULL;
-        close(sock);
     }
+    
+    if ( _listenSource != NULL )
+    {
+        dispatch_source_cancel(_listenSource);
+#if USING_MRR || DISPATCH_USES_ARC == 0
+        dispatch_release(_listenSource);
+#endif
+        _listenSource = NULL;
+    }
+    
+    if ( _rawSocket != -1 )
+        close(_rawSocket);
+    
+    // We set 'disconnected' state if we close because of a connection reset or broken pipe, etc.
+    // If that isn't set, then this is considered a voluntary disconnect, so we mark the socket
+    // as being reusable.
+    if ( _status != AQSocketDisconnected )
+        _status = AQSocketUnconnected;
+    
+    // NB: we do NOT release the socket resource because it's gone now; it'll be released (if recreated) later.
+}
+
+- (struct sockaddr_storage) socketAddress
+{
+    struct sockaddr_storage saddr = {0};
+    socklen_t slen = sizeof(saddr);
+    if ( _rawSocket != -1 )
+        getsockname(_rawSocket, (struct sockaddr *)&saddr, &slen);
+    return ( saddr );
+}
+
+- (struct sockaddr_storage) peerSocketAddress
+{
+    struct sockaddr_storage saddr = {0};
+    socklen_t slen = sizeof(saddr);
+    if ( _rawSocket != -1 )
+        getpeername(_rawSocket, (struct sockaddr *)&saddr, &slen);
+    return ( saddr );
+}
+
+- (uint16_t) port
+{
+    if ( _rawSocket == -1 )
+        return ( 0 );
+    
+    struct sockaddr_storage saddr = self.socketAddress;
+    
+    struct sockaddr_in *pIn4 = (struct sockaddr_in *)&saddr;
+    struct sockaddr_in6 *pIn6 = (struct sockaddr_in6 *)&saddr;
+    
+    uint16_t port = 0;
+    if ( saddr.ss_family == AF_INET )
+        port = ntohs(pIn4->sin_port);
+    else if ( saddr.ss_family == AF_INET6 )
+        port = ntohs(pIn6->sin6_port);
+    
+    return ( port );
 }
 
 - (void) writeBytes: (NSData *) bytes
          completion: (void (^)(NSData *, NSError *)) completionHandler
 {
     NSParameterAssert([bytes length] != 0);
+    if ( _status != AQSocketConnected )
+        return;
+    
+    // claim the socket resource
+    if ( dispatch_semaphore_wait(_sync, dispatch_time(DISPATCH_TIME_NOW, 1 * NSEC_PER_SEC)) != 0 )
+        return;     // timed out, which means we've got no socket any more
     
     if ( _socketIO == nil )
     {
@@ -552,6 +817,9 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
     
     // Pass the write along to our IO channel, along with the completion/unsent handler.
     [_socketIO writeData: bytes withCompletion: completionHandler];
+    
+    // reopen the resource for others
+    dispatch_semaphore_signal(_sync);
 }
 
 - (void) setEventHandler: (AQSocketEventHandler) anEventHandler
@@ -579,18 +847,63 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
 
 - (NSString *) description
 {
+    static NSArray * __statusStrings = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        __statusStrings = [[NSArray alloc] initWithObjects: @"AQSocketUnconnected", @"AQSocketConnecting", @"AQSocketListening", @"AQSocketConnected", @"AQSocketDisconnected", nil];
+    });
+    
+    if ( _socketRef == NULL )
+    {
+        return ( [NSString stringWithFormat: @"%@: status=%@", [super description], [__statusStrings objectAtIndex: _status]] );
+    }
+    
     struct sockaddr_storage sockname = {0};
     struct sockaddr_storage peername = {0};
     socklen_t socknamelen = sockname.ss_len = sizeof(struct sockaddr_storage);
     socklen_t peernamelen = peername.ss_len = sizeof(struct sockaddr_storage);
     
-    getsockname(CFSocketGetNative(_socketRef), (struct sockaddr *)&sockname, &socknamelen);
-    getpeername(CFSocketGetNative(_socketRef), (struct sockaddr *)&peername, &peernamelen);
+    BOOL gotMine = (getsockname(_rawSocket, (struct sockaddr *)&sockname, &socknamelen) == 0);
+    BOOL gotPeer = (getpeername(_rawSocket, (struct sockaddr *)&peername, &peernamelen) == 0);
     
     char socknamestr[INET6_ADDRSTRLEN];
     char peernamestr[INET6_ADDRSTRLEN];
-    inet_ntop(sockname.ss_family, &sockname, socknamestr, INET6_ADDRSTRLEN);
-    inet_ntop(peername.ss_family, &peername, peernamestr, INET6_ADDRSTRLEN);
+    
+    if ( gotMine )
+    {
+        if ( sockname.ss_family == AF_INET )
+        {
+            struct sockaddr_in *pIn = (struct sockaddr_in *)&sockname;
+            inet_ntop(sockname.ss_family, &pIn->sin_addr, socknamestr, INET6_ADDRSTRLEN);
+        }
+        else
+        {
+            struct sockaddr_in6 *pIn = (struct sockaddr_in6 *)&sockname;
+            inet_ntop(sockname.ss_family, &pIn->sin6_addr, socknamestr, INET6_ADDRSTRLEN);
+        }
+    }
+    else
+    {
+        socknamestr[0] = '\0';
+    }
+    
+    if ( gotPeer )
+    {
+        if ( peername.ss_family == AF_INET )
+        {
+            struct sockaddr_in *pIn = (struct sockaddr_in *)&peername;
+            inet_ntop(peername.ss_family, &pIn->sin_addr, peernamestr, INET6_ADDRSTRLEN);
+        }
+        else
+        {
+            struct sockaddr_in6 *pIn = (struct sockaddr_in6 *)&peername;
+            inet_ntop(peername.ss_family, &pIn->sin6_addr, peernamestr, INET6_ADDRSTRLEN);
+        }
+    }
+    else
+    {
+        peernamestr[0] = '\0';
+    }
     
     socknamestr[INET6_ADDRSTRLEN-1] = '\0';
     peernamestr[INET6_ADDRSTRLEN-1] = '\0';
@@ -601,7 +914,7 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
         struct sockaddr_in *p = (struct sockaddr_in *)&sockname;
         sockport = ntohs(p->sin_port);
     }
-    else
+    else if ( sockname.ss_family == AF_INET6 )
     {
         struct sockaddr_in6 *p = (struct sockaddr_in6 *)&sockname;
         sockport = ntohs(p->sin6_port);
@@ -611,20 +924,14 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
         struct sockaddr_in *p = (struct sockaddr_in *)&peername;
         peerport = ntohs(p->sin_port);
     }
-    else
+    else if ( peername.ss_family == AF_INET6 )
     {
         struct sockaddr_in6 *p = (struct sockaddr_in6 *)&peername;
         peerport = ntohs(p->sin6_port);
     }
     
-    NSString * myAddr = [NSString stringWithFormat: @"%s:%hu", socknamestr, sockport];
-    NSString * peerAddr = [NSString stringWithFormat: @"%s:%hu", peernamestr, peerport];
-    
-    static NSArray * __statusStrings = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        __statusStrings = [[NSArray alloc] initWithObjects: @"AQSocketUnconnected", @"AQSocketConnecting", @"AQSocketListening", @"AQSocketConnected", @"AQSocketDisconnected", nil];
-    });
+    NSString * myAddr = (gotMine ? [NSString stringWithFormat: @"%s:%hu", socknamestr, sockport] : @"<unknown>");
+    NSString * peerAddr = (gotMine ? [NSString stringWithFormat: @"%s:%hu", peernamestr, peerport] : @"<unknown>");
     
     return ( [NSString stringWithFormat: @"%@: {status=%@, addr=%@, peer=%@}", [super description], [__statusStrings objectAtIndex: _status], myAddr, peerAddr] );
 }
@@ -644,16 +951,13 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
     // Before all that though, we'll remove the CFSocketRef from the runloop.
     if ( _socketRunloopSource != NULL )
     {
-        CFRunLoopRemoveSource(CFRunLoopGetMain(), _socketRunloopSource, kCFRunLoopDefaultMode);
-#if 0
-        CFRunLoopRemoveSource(CFRunLoopGetMain(), _socketRunloopSource, (__bridge CFStringRef)
-#if TARGET_OS_IPHONE
-                              UITrackingRunLoopMode
-#else
-                              NSEventTrackingRunLoopMode
-#endif
-                              );
-#endif
+        CFRunLoopRemoveSource(AQSocketCFHandlerRunLoop(), _socketRunloopSource, kCFRunLoopDefaultMode);
+        NSString * eventMode = __EventTrackingRunLoopMode();
+        if ( eventMode != nil )
+        {
+            CFRunLoopRemoveSource(AQSocketCFHandlerRunLoop(), _socketRunloopSource, (__bridge CFStringRef)eventMode);
+        }
+        
         // All done with this one now.
         CFRelease(_socketRunloopSource);
         _socketRunloopSource = NULL;
@@ -665,7 +969,7 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
     // First, the IO channel. We will have its cleanup handler release the
     // CFSocketRef for us; in other words, the IO channel now owns the
     // CFSocketRef.
-    _socketIO = [[AQSocketIOChannel alloc] initWithNativeSocket: CFSocketGetNative(_socketRef) cleanupHandler: ^{
+    _socketIO = [[AQSocketIOChannel alloc] initWithNativeSocket: _rawSocket cleanupHandler: ^{
         // all done with the socket reference, make it noticeably go away.
         if ( _socketRef != NULL )
         {
@@ -686,12 +990,15 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
     _socketReader = aSocketReader;
 #endif
     
-    __maybe_weak AQSocket *weakSelf = self;
+    __block_weak AQSocket *weakSelf = self;
     
     // Now we install a callback to tell us when new data arrives.
     _socketIO.readHandler = ^(NSData * data, NSError * error){
         AQSocket *strongSelf = weakSelf;
-        NSLog(@"Incoming data on %@: %lu bytes", strongSelf, [data length]);
+        
+#if DEBUGLOG
+        NSLog(@"Incoming data on %@: %lu bytes", strongSelf, (unsigned long)[data length]);
+#endif
         if ( data != nil )
         {
             if ( [data length] != 0 )
@@ -703,19 +1010,41 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
             else
             {
                 // socket closed
-                NSLog(@"zero-length data received, closing socket");
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    [strongSelf close];
-                });
+                strongSelf->_status = AQSocketDisconnected;
+#if DEBUGLOG
+                NSLog(@"Socket %@: zero-length data received, closing now", strongSelf);
+#endif
+                if ( strongSelf.eventHandler != nil )
+                    strongSelf.eventHandler(AQSocketEventDisconnected, nil);
+                [strongSelf close];
             }
         }
         else if ( error != nil )
         {
+#if DEBUGLOG
             NSLog(@"Error on %@; %@", strongSelf, error);
+#endif
             if ( strongSelf.eventHandler != nil )
                 strongSelf.eventHandler(AQSocketErrorEncountered, error);
         }
+        else if ( data == nil )
+        {
+            strongSelf->_status = AQSocketDisconnected;
+#if DEBUGLOG
+            NSLog(@"Connection reset for %@", strongSelf);
+#endif
+            [strongSelf close];
+            if ( strongSelf.eventHandler != nil )
+                strongSelf.eventHandler(AQSocketEventDisconnected, nil);
+        }
     };
+    
+#if USING_MRR
+    [aSocketReader release];
+#endif
+    
+    // socket is now available for use
+    dispatch_semaphore_signal(_sync);
 }
 
 - (void) connectionFailedWithError: (SInt32) err
@@ -725,7 +1054,11 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
     
     // Get rid of the socket now, since we might try to re-connect, which will
     // create a new CFSocketRef.
-    CFRelease(_socketRef); _socketRef = NULL;
+    if ( _socketRef != NULL )
+    {
+        CFRelease(_socketRef);
+        _socketRef = NULL;
+    }
 }
 
 @end
@@ -737,6 +1070,10 @@ static BOOL _SocketAddressFromString(NSString * addrStr, BOOL isNumeric, UInt16 
     AQSocket * child = [[AQSocket alloc] initWithConnectedSocket: clientSock];
     if ( child == nil )
         return;
+    
+#if DEBUGLOG
+    NSLog(@"Listening socket %@ accepted new connection on child socket %@", self, child);
+#endif
     
     // Inform the client about the appearance of the child socket.
     // It's up to the client to keep it around -- we just pass it on as appropriate.
