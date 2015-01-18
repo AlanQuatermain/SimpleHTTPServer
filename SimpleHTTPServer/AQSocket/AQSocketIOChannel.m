@@ -101,10 +101,14 @@
     _cleanupHandler = [cleanupHandler copy];
     
     // Create a serial queue upon which all notification/completion blocks will run.
-    _q = dispatch_queue_create("me.alanquatermain.AQSocketIOChannel", DISPATCH_QUEUE_SERIAL);
-    
-    // Point this serial queue at the high-priority global queue for speedy handling.
-    dispatch_set_target_queue(_q, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0));
+    if (dispatch_queue_attr_make_with_qos_class != NULL) {
+        _q = dispatch_queue_create("me.alanquatermain.AQSocketIOChannel", dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INITIATED, 0));
+    }
+    else {
+        _q = dispatch_queue_create("me.alanquatermain.AQSocketIOChannel", DISPATCH_QUEUE_SERIAL);
+        // Point this serial queue at the high-priority global queue for speedy handling.
+        dispatch_set_target_queue(_q, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0));
+    }
     
     return ( self );
 }
@@ -637,7 +641,9 @@
             if ( totalSent == [data length] )
             {
                 // all done, no errors
-                completion(nil, nil);
+                dispatch_async(_q, ^{
+                    completion(nil, nil);
+                });
             }
             else        // sent partial data-- block until we receive more
             {
